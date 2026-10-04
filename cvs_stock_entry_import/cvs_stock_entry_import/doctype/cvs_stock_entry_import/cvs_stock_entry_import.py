@@ -4,6 +4,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from erpnext.stock.get_item_details import get_conversion_factor
+
 from cvs_stock_entry_import.cvs_stock_entry_import import item_matcher
 
 
@@ -84,14 +86,23 @@ def generate_stock_entry(name):
 					_("Row #{0}: Batch {1} does not belong to Item {2}.").format(row.idx, row.batch_no, row.item_code)
 				)
 
-		uom, uom_warning = item_matcher.resolve_uom_for_item(row.item_code, row.uom)
-		if uom_warning:
+		# UOM is extracted/user-chosen and is never silently replaced with Stock
+		# UOM here — only checked, with a review warning if it doesn't look
+		# configured for this Item. Stock UOM is always ERP-controlled.
+		stock_uom = item_matcher.get_stock_uom(row.item_code)
+		row_uom = row.uom or stock_uom
+		is_valid, uom_warning = item_matcher.check_uom(row.item_code, row_uom)
+		if not is_valid:
 			warnings.append(_("Row {0}: {1}").format(row.idx, uom_warning))
+
+		conversion_factor = get_conversion_factor(row.item_code, row_uom).get("conversion_factor") or 1.0
 
 		se_row = {
 			"item_code": row.item_code,
 			"qty": row.issued_qty,
-			"uom": uom,
+			"uom": row_uom,
+			"stock_uom": stock_uom,
+			"conversion_factor": conversion_factor,
 			"s_warehouse": doc.source_warehouse,
 		}
 		if sed_meta.has_field("requested_qty"):

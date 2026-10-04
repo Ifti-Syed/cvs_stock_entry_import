@@ -432,23 +432,26 @@ def upsert_alias(original_description, item_code, source="CVS Stock Entry Import
 	doc.insert(ignore_permissions=True)
 
 
-def resolve_uom_for_item(item_code, extracted_uom):
-	"""
-	Never invents a UOM combination. Uses the extracted UOM only if it (case-
-	insensitively) matches the Item's Stock UOM or one of its configured
-	alternate UOMs; otherwise falls back to Stock UOM.
-	Returns (uom, warning_or_None).
-	"""
-	stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
-	if not extracted_uom:
-		return stock_uom, None
+def get_stock_uom(item_code):
+	"""The Item's own Stock UOM — always ERP-controlled, never AI-extracted."""
+	return frappe.db.get_value("Item", item_code, "stock_uom")
 
-	extracted_uom = str(extracted_uom).strip()
-	if not extracted_uom:
-		return stock_uom, None
 
+def check_uom(item_code, extracted_uom):
+	"""
+	Checks (never changes) whether the extracted UOM is usable for this Item:
+	either its Stock UOM or one of its configured alternate UOMs. Returns
+	(is_valid, warning_or_None) — callers must still pass the extracted UOM
+	through unchanged and surface the warning for manual review rather than
+	silently substituting Stock UOM.
+	"""
+	extracted_uom = (extracted_uom or "").strip()
+	if not extracted_uom:
+		return True, None
+
+	stock_uom = get_stock_uom(item_code)
 	if extracted_uom.lower() == (stock_uom or "").lower():
-		return stock_uom, None
+		return True, None
 
 	alt_uoms = frappe.get_all(
 		"UOM Conversion Detail",
@@ -457,8 +460,8 @@ def resolve_uom_for_item(item_code, extracted_uom):
 	)
 	for u in alt_uoms:
 		if u.lower() == extracted_uom.lower():
-			return u, None
+			return True, None
 
-	return stock_uom, (
-		f"Extracted UOM \"{extracted_uom}\" is not configured for Item {item_code}; using Stock UOM {stock_uom} instead."
+	return False, (
+		f'Extracted UOM "{extracted_uom}" is not configured for Item {item_code} (Stock UOM is {stock_uom}) — please verify before generating.'
 	)

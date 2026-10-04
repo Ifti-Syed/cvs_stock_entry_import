@@ -5,6 +5,7 @@ authors = [
 ]
 description = "Extracts Material Issuance Summary documents with AI and generates standard ERPNext Stock Entries (Material Issue)"
 readme = "README.md"
+license = { text = "Proprietary" }
 requires-python = ">=3.10"
 version = "0.0.1"
 dependencies = [

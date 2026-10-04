@@ -12,4 +12,4 @@ bench --site [site-name] install-app cvs_stock_entry_import
 
 ### License
 
-MIT
+Proprietary — internal use only (CVS). Not licensed for external distribution.

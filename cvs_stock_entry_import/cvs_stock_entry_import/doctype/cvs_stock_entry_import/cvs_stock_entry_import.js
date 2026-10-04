@@ -113,6 +113,7 @@ frappe.ui.form.on("CVS Stock Entry Import", {
               item_code: row.item_code || "",
               item_name: row.item_name || "",
               uom: row.uom || "",
+              stock_uom: row.stock_uom || "",
               requested_qty: row.requested_qty || 0,
               issued_qty: row.issued_qty || 0,
               batch_no: row.batch_no || "",
@@ -257,7 +258,9 @@ frappe.ui.form.on("CVS Stock Entry Import Item", {
     frappe.db.get_value("Item", row.item_code, ["item_name", "stock_uom"]).then((r) => {
       if (!r.message) return;
       frappe.model.set_value(cdt, cdn, "item_name", r.message.item_name || "");
-      if (!row.uom) frappe.model.set_value(cdt, cdn, "uom", r.message.stock_uom || "");
+      frappe.model.set_value(cdt, cdn, "stock_uom", r.message.stock_uom || "");
+      // UOM is left exactly as-is here — only ever set from the extracted
+      // document or a direct user edit, never defaulted from Stock UOM.
       frappe.model.set_value(cdt, cdn, "match_status", "Manual Selection");
       frappe.model.set_value(cdt, cdn, "match_confidence", 100);
       frappe.model.set_value(cdt, cdn, "match_notes", __("Item Code selected manually."));

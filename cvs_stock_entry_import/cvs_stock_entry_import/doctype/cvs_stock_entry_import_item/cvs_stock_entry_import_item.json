@@ -12,6 +12,7 @@
     "item_code",
     "item_name",
     "uom",
+    "stock_uom",
     "requested_qty",
     "issued_qty",
     "batch_no",
@@ -61,7 +62,19 @@
       "label": "UOM",
       "options": "UOM",
       "in_list_view": 1,
-      "columns": 1
+      "columns": 1,
+      "description": "Exactly as extracted from the document. Never auto-replaced with Stock UOM — if it isn't valid for the selected Item, generation will flag it for review instead of silently changing it."
+    },
+    {
+      "fieldname": "stock_uom",
+      "fieldtype": "Link",
+      "label": "Stock UOM",
+      "options": "UOM",
+      "fetch_from": "item_code.stock_uom",
+      "read_only": 1,
+      "in_list_view": 1,
+      "columns": 1,
+      "description": "ERPNext's Stock UOM for the matched Item. Always ERP-controlled, never extracted or guessed."
     },
     {
       "fieldname": "requested_qty",

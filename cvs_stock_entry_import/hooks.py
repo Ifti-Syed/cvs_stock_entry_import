@@ -8,7 +8,7 @@ app_description = "Extracts Material Issuance Summary documents with AI and gene
 app_icon = "octicon octicon-package"
 app_color = "blue"
 app_email = "iftikhar.hussain@cvshvac.com"
-app_license = "MIT"
+app_license = "Proprietary"
 app_version = '0.0.1'
 
 # include js in doctype views
