@@ -15,12 +15,12 @@ app_version = '0.0.1'
 doctype_js = {
 }
 
-fixtures = [
-	{
-		"doctype": "Custom Field",
-		"filters": [["name", "in", ["Stock Entry Detail-requested_qty"]]],
-	}
-]
+# No fixtures: Stock Entry Detail.requested_qty is expected to already exist
+# on the target site (either as a pre-existing Custom Field or, if not,
+# create it manually once via Customize Form before using this app — see
+# CVSStockEntryImport.generate_stock_entry(), which checks for it with
+# frappe.get_meta("Stock Entry Detail").has_field("requested_qty") and
+# simply skips setting it if it's genuinely absent).
 
 # Scheduled Tasks
 # ---------------
