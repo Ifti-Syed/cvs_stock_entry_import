@@ -1,0 +1,157 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "autoname": "format:CVS-STEI-{YYYY}-{######}",
+  "creation": "2026-10-01 00:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "company",
+    "source_warehouse",
+    "column_break_doc",
+    "cvs_setting",
+    "material_issuance_summary",
+    "extract_data",
+    "section_break_header",
+    "posting_date",
+    "job_number",
+    "column_break_header",
+    "opr_number",
+    "section_break_items",
+    "items",
+    "section_break_generate",
+    "generate_stock_entry",
+    "generated_stock_entry"
+  ],
+  "fields": [
+    {
+      "fieldname": "company",
+      "fieldtype": "Link",
+      "label": "Company",
+      "options": "Company",
+      "reqd": 1
+    },
+    {
+      "fieldname": "source_warehouse",
+      "fieldtype": "Link",
+      "label": "Source Warehouse",
+      "options": "Warehouse",
+      "description": "Every item row is issued from this Warehouse."
+    },
+    {
+      "fieldname": "column_break_doc",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "cvs_setting",
+      "fieldtype": "Link",
+      "label": "AI Setting",
+      "options": "CVS Stock Entry Import Setting"
+    },
+    {
+      "fieldname": "material_issuance_summary",
+      "fieldtype": "Attach",
+      "label": "Material Issuance Summary"
+    },
+    {
+      "fieldname": "extract_data",
+      "fieldtype": "Button",
+      "label": "Extract Data",
+      "depends_on": "eval:doc.material_issuance_summary && doc.cvs_setting && (!doc.posting_date || !doc.items || doc.items.length==0)"
+    },
+    {
+      "fieldname": "section_break_header",
+      "fieldtype": "Section Break",
+      "label": "Extracted Header"
+    },
+    {
+      "fieldname": "posting_date",
+      "fieldtype": "Date",
+      "label": "Posting Date"
+    },
+    {
+      "fieldname": "job_number",
+      "fieldtype": "Data",
+      "label": "Job Number"
+    },
+    {
+      "fieldname": "column_break_header",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "opr_number",
+      "fieldtype": "Data",
+      "label": "OPR",
+      "description": "Checked against Order Processing Request when generating the Stock Entry. Kept as free text here (not a Link) so this document can always be saved during review, even before the OPR text is corrected. Left blank on the Stock Entry if no matching record is found — never blocks generation by itself."
+    },
+    {
+      "fieldname": "section_break_items",
+      "fieldtype": "Section Break",
+      "label": "Extracted Items"
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "CVS Stock Entry Import Item"
+    },
+    {
+      "fieldname": "section_break_generate",
+      "fieldtype": "Section Break",
+      "label": "Generated Document"
+    },
+    {
+      "fieldname": "generate_stock_entry",
+      "fieldtype": "Button",
+      "label": "Generate Stock Entry",
+      "depends_on": "eval:doc.items && doc.items.length && !doc.generated_stock_entry"
+    },
+    {
+      "fieldname": "generated_stock_entry",
+      "fieldtype": "Link",
+      "label": "Generated Stock Entry",
+      "options": "Stock Entry",
+      "read_only": 1,
+      "depends_on": "eval:doc.generated_stock_entry"
+    }
+  ],
+  "links": [],
+  "modified": "2026-10-01 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "CVS Stock Entry Import",
+  "name": "CVS Stock Entry Import",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock User",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "quick_entry": 1,
+  "row_format": "Dynamic",
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}

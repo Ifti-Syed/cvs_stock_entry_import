@@ -1,0 +1,18 @@
+[project]
+name = "cvs_stock_entry_import"
+authors = [
+    { name = "Iftikhar Hussain Syed", email = "iftikhar.hussain@cvshvac.com" }
+]
+description = "Extracts Material Issuance Summary documents with AI and generates standard ERPNext Stock Entries (Material Issue)"
+readme = "README.md"
+requires-python = ">=3.10"
+version = "0.0.1"
+dependencies = [
+    "openai==1.66.3",
+    "PyMuPDF>=1.23.0",
+    "rapidfuzz>=3.0.0",
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"

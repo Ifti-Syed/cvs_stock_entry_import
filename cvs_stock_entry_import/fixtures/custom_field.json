@@ -1,0 +1,15 @@
+[
+  {
+    "doctype": "Custom Field",
+    "name": "Stock Entry Detail-requested_qty",
+    "dt": "Stock Entry Detail",
+    "fieldname": "requested_qty",
+    "fieldtype": "Float",
+    "label": "Requested Qty",
+    "insert_after": "qty",
+    "non_negative": 1,
+    "print_hide": 1,
+    "description": "Quantity originally requested on the source document (e.g. a Material Issuance Summary), kept separate from the actual issued Qty above. Added by the CVS Stock Entry Import app.",
+    "module": "CVS Stock Entry Import"
+  }
+]
