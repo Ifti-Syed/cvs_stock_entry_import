@@ -1,148 +1,140 @@
 {
-  "actions": [],
-  "allow_rename": 0,
-  "autoname": "hash",
-  "creation": "2026-10-01 00:00:00.000000",
-  "doctype": "DocType",
-  "editable_grid": 1,
-  "engine": "InnoDB",
-  "field_order": [
-    "original_description",
-    "extracted_item_code",
-    "item_code",
-    "item_name",
-    "uom",
-    "stock_uom",
-    "requested_qty",
-    "issued_qty",
-    "batch_no",
-    "match_status",
-    "match_confidence",
-    "section_break_notes",
-    "match_notes",
-    "candidates_json"
-  ],
-  "fields": [
-    {
-      "fieldname": "original_description",
-      "fieldtype": "Data",
-      "label": "Original Description",
-      "read_only": 1,
-      "in_list_view": 1,
-      "columns": 3,
-      "description": "Exactly as extracted from the Material Issuance Summary. Never overwritten by the matched Item's name."
-    },
-    {
-      "fieldname": "extracted_item_code",
-      "fieldtype": "Data",
-      "label": "Item Code (on document)",
-      "read_only": 1,
-      "description": "Item Code as printed on the document, before validation against the Item master. May be blank if none was printed."
-    },
-    {
-      "fieldname": "item_code",
-      "fieldtype": "Link",
-      "label": "Item Code",
-      "options": "Item",
-      "in_list_view": 1,
-      "columns": 2
-    },
-    {
-      "fieldname": "item_name",
-      "fieldtype": "Data",
-      "label": "Item Name",
-      "fetch_from": "item_code.item_name",
-      "read_only": 1,
-      "in_list_view": 1,
-      "columns": 3
-    },
-    {
-      "fieldname": "uom",
-      "fieldtype": "Link",
-      "label": "UOM",
-      "options": "UOM",
-      "in_list_view": 1,
-      "columns": 1,
-      "description": "Exactly as extracted from the document. Never auto-replaced with Stock UOM — if it isn't valid for the selected Item, generation will flag it for review instead of silently changing it."
-    },
-    {
-      "fieldname": "stock_uom",
-      "fieldtype": "Link",
-      "label": "Stock UOM",
-      "options": "UOM",
-      "fetch_from": "item_code.stock_uom",
-      "read_only": 1,
-      "in_list_view": 1,
-      "columns": 1,
-      "description": "ERPNext's Stock UOM for the matched Item. Always ERP-controlled, never extracted or guessed."
-    },
-    {
-      "fieldname": "requested_qty",
-      "fieldtype": "Float",
-      "label": "Requested Qty",
-      "in_list_view": 1,
-      "columns": 1
-    },
-    {
-      "fieldname": "issued_qty",
-      "fieldtype": "Float",
-      "label": "Issued Qty",
-      "in_list_view": 1,
-      "columns": 1
-    },
-    {
-      "fieldname": "batch_no",
-      "fieldtype": "Link",
-      "label": "Batch No",
-      "options": "Batch",
-      "in_list_view": 1,
-      "columns": 2
-    },
-    {
-      "fieldname": "match_status",
-      "fieldtype": "Select",
-      "label": "Match Status",
-      "options": "\nExact Item Code\nExact Name Match\nHigh Confidence\nPossible Match\nMultiple Matches\nManual Selection\nNo Match",
-      "read_only": 1,
-      "in_list_view": 1,
-      "columns": 2
-    },
-    {
-      "fieldname": "match_confidence",
-      "fieldtype": "Percent",
-      "label": "Match Confidence",
-      "read_only": 1,
-      "in_list_view": 1,
-      "columns": 1
-    },
-    {
-      "fieldname": "section_break_notes",
-      "fieldtype": "Section Break",
-      "label": "Match Details"
-    },
-    {
-      "fieldname": "match_notes",
-      "fieldtype": "Small Text",
-      "label": "Match Notes",
-      "read_only": 1,
-      "description": "Why this match (or lack of one) was chosen — e.g. contradicting dimensions, multiple equally valid candidates."
-    },
-    {
-      "fieldname": "candidates_json",
-      "fieldtype": "Long Text",
-      "label": "Candidates (JSON)",
-      "hidden": 1,
-      "read_only": 1
-    }
-  ],
-  "istable": 1,
-  "links": [],
-  "modified": "2026-10-01 00:00:00.000000",
-  "modified_by": "Administrator",
-  "module": "CVS Stock Entry Import",
-  "name": "CVS Stock Entry Import Item",
-  "owner": "Administrator",
-  "permissions": [],
-  "sort_field": "modified",
-  "sort_order": "DESC"
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-10-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "original_description",
+  "extracted_item_code",
+  "item_code",
+  "item_name",
+  "uom",
+  "stock_uom",
+  "requested_qty",
+  "issued_qty",
+  "batch_no",
+  "match_status",
+  "match_confidence",
+  "section_break_notes",
+  "match_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "original_description",
+   "fieldtype": "Data",
+   "label": "Original Description",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 3,
+   "description": "Exactly as extracted from the Material Issuance Summary. Never overwritten by the matched Item's name."
+  },
+  {
+   "fieldname": "extracted_item_code",
+   "fieldtype": "Data",
+   "label": "Item Code (on document)",
+   "read_only": 1,
+   "description": "Item Code as printed on the document, before validation against the Item master. May be blank if none was printed."
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item Code",
+   "options": "Item",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item Name",
+   "fetch_from": "item_code.item_name",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "UOM",
+   "options": "UOM",
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "Exactly as extracted from the document. Never auto-replaced with Stock UOM — if it isn't valid for the selected Item, generation will flag it for review instead of silently changing it."
+  },
+  {
+   "fieldname": "stock_uom",
+   "fieldtype": "Link",
+   "label": "Stock UOM",
+   "options": "UOM",
+   "fetch_from": "item_code.stock_uom",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "ERPNext's Stock UOM for the matched Item. Always ERP-controlled, never extracted or guessed."
+  },
+  {
+   "fieldname": "requested_qty",
+   "fieldtype": "Float",
+   "label": "Requested Qty",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "issued_qty",
+   "fieldtype": "Float",
+   "label": "Issued Qty",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "batch_no",
+   "fieldtype": "Link",
+   "label": "Batch No",
+   "options": "Batch",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "match_status",
+   "fieldtype": "Select",
+   "label": "Match Status",
+   "options": "\nExact Item Code\nExact Name Match\nHigh Confidence\nPossible Match\nMultiple Matches\nManual Selection\nNo Match",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "match_confidence",
+   "fieldtype": "Percent",
+   "label": "Match Confidence",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "section_break_notes",
+   "fieldtype": "Section Break",
+   "label": "Match Details"
+  },
+  {
+   "fieldname": "match_notes",
+   "fieldtype": "Small Text",
+   "label": "Match Notes",
+   "read_only": 1,
+   "description": "Why this match was chosen, and the candidate Items when a choice is needed."
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "CVS Stock Entry Import",
+ "name": "CVS Stock Entry Import Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
 }

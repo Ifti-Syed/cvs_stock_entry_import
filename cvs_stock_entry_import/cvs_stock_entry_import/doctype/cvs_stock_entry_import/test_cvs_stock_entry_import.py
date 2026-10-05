@@ -1,8 +1,0 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
-import unittest
-
-
-class TestCVSStockEntryImport(unittest.TestCase):
-	pass

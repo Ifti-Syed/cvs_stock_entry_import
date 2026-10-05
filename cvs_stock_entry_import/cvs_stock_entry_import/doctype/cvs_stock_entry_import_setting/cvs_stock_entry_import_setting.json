@@ -1,67 +1,67 @@
 {
-  "actions": [],
-  "allow_rename": 1,
-  "autoname": "format:STEI-{company}-{##}",
-  "creation": "2026-10-01 00:00:00.000000",
-  "doctype": "DocType",
-  "editable_grid": 1,
-  "engine": "InnoDB",
-  "field_order": [
-    "company",
-    "gpt_model",
-    "gpt_key",
-    "default_source_warehouse"
-  ],
-  "fields": [
-    {
-      "fieldname": "company",
-      "fieldtype": "Link",
-      "label": "Company",
-      "reqd": 1,
-      "options": "Company"
-    },
-    {
-      "fieldname": "gpt_key",
-      "fieldtype": "Data",
-      "label": "GPT API Key",
-      "reqd": 1,
-      "length": 200
-    },
-    {
-      "fieldname": "gpt_model",
-      "fieldtype": "Select",
-      "label": "GPT API Model",
-      "options": "gpt-4o\ngpt-4o-mini",
-      "reqd": 1
-    },
-    {
-      "fieldname": "default_source_warehouse",
-      "fieldtype": "Link",
-      "label": "Default Source Warehouse",
-      "options": "Warehouse",
-      "description": "Optional. Used to pre-fill Source Warehouse on a new CVS Stock Entry Import for this Company. Can always be changed per document."
-    }
-  ],
-  "links": [],
-  "modified": "2026-10-01 00:00:00.000000",
-  "modified_by": "Administrator",
-  "module": "CVS Stock Entry Import",
-  "name": "CVS Stock Entry Import Setting",
-  "owner": "Administrator",
-  "permissions": [
-    {
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "role": "System Manager",
-      "share": 1,
-      "write": 1
-    }
-  ],
-  "sort_field": "modified",
-  "sort_order": "DESC"
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:STEI-{company}-{##}",
+ "creation": "2026-10-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "gpt_model",
+  "gpt_key",
+  "default_source_warehouse"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "reqd": 1,
+   "options": "Company"
+  },
+  {
+   "fieldname": "gpt_key",
+   "fieldtype": "Password",
+   "label": "GPT API Key",
+   "reqd": 1
+  },
+  {
+   "fieldname": "gpt_model",
+   "fieldtype": "Data",
+   "label": "GPT API Model",
+   "default": "gpt-6-luna",
+   "reqd": 1,
+   "description": "Exact OpenAI API model ID, e.g. gpt-6-luna, gpt-5.6-luna, gpt-4o-mini. Must be vision-capable. Check platform.openai.com/docs/models for the current list."
+  },
+  {
+   "fieldname": "default_source_warehouse",
+   "fieldtype": "Link",
+   "label": "Default Source Warehouse",
+   "options": "Warehouse",
+   "description": "Optional. Used to pre-fill Source Warehouse on a new CVS Stock Entry Import for this Company. Can always be changed per document."
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "CVS Stock Entry Import",
+ "name": "CVS Stock Entry Import Setting",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC"
 }

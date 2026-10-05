@@ -4,12 +4,13 @@ authors = [
     { name = "Iftikhar Hussain Syed", email = "iftikhar.hussain@cvshvac.com" }
 ]
 description = "Extracts Material Issuance Summary documents with AI and generates standard ERPNext Stock Entries (Material Issue)"
-readme = "README.md"
-license = { text = "Proprietary" }
 requires-python = ">=3.10"
-version = "0.0.1"
+readme = "README.md"
+license = { file = "license.txt" }
+dynamic = ["version"]
 dependencies = [
-    "openai==1.66.3",
+    # frappe and erpnext are installed and managed by bench
+    "openai>=1.66.3",
     "PyMuPDF>=1.23.0",
     "rapidfuzz>=3.0.0",
 ]
@@ -20,7 +21,3 @@ build-backend = "flit_core.buildapi"
 
 [tool.bench.frappe-dependencies]
 frappe = ">=15.0.0,<16.0.0"
-
-# These dependencies are only installed when developer mode is enabled
-[tool.bench.dev-dependencies]
-# package_name = "~=1.1.0"

@@ -1,166 +1,153 @@
-from __future__ import unicode_literals
-
 import frappe
+from erpnext.stock.get_item_details import get_conversion_factor
 from frappe import _
 from frappe.model.document import Document
-
-from erpnext.stock.get_item_details import get_conversion_factor
+from frappe.utils import getdate
 
 from cvs_stock_entry_import.cvs_stock_entry_import import item_matcher
+from cvs_stock_entry_import.cvs_stock_entry_import.extract import extract_document
+
+REVIEW_STATUSES = ("Possible Match", "Multiple Matches", "No Match")
 
 
 class CVSStockEntryImport(Document):
-	pass
+	@frappe.whitelist()
+	def extract_data(self):
+		self.check_permission("write")
+		if self.generated_stock_entry and frappe.db.get_value("Stock Entry", self.generated_stock_entry, "docstatus") != 2:
+			frappe.throw(_("A Stock Entry has already been generated from this document."))
+		if not self.material_issuance_summary or not self.cvs_setting:
+			frappe.throw(_("Please attach the Material Issuance Summary and select an AI Setting."))
 
+		data = extract_document(self.material_issuance_summary, self.cvs_setting)
 
-@frappe.whitelist()
-def generate_stock_entry(name):
-	"""
-	Create a standard draft ERPNext Stock Entry (Material Issue) from a
-	reviewed CVS Stock Entry Import. Always goes through frappe.get_doc/
-	standard document methods so ERPNext's own validation, valuation, UOM
-	conversion, warehouse handling and (for batch items) Serial and Batch
-	Bundle creation all run exactly as they would from the Desk UI.
+		self.posting_date = _valid_date(data["posting_date"])
+		self.job_number = data["job_number"]
+		self.opr_number = data["opr_number"]
+		self.set("items", [])
+		for row in data["items"]:
+			match = item_matcher.match_row(row["item_code_on_document"], row["description"])
+			batch_no, batch_note = _check_batch(row["batch_id"], match["item_code"])
+			if batch_note:
+				match["match_notes"] = f"{match['match_notes']} {batch_note}"
+			self.append("items", {
+				**match,
+				"original_description": row["description"],
+				"extracted_item_code": row["item_code_on_document"],
+				"uom": row["uom"],
+				"requested_qty": row["requested_qty"],
+				"issued_qty": row["issued_qty"],
+				"batch_no": batch_no,
+			})
+		self.save()
 
-	Duplicate-prevention is enforced here (server-side, row-locked) — not
-	only by the client-side button visibility.
-	"""
-	doc = frappe.get_doc("CVS Stock Entry Import", name)
-	doc.check_permission("write")
-
-	# Row-lock this record for the duration of the request so two rapid
-	# clicks (or two browser tabs) can't both pass the "not yet generated"
-	# check before either has committed its Stock Entry link back.
-	locked = frappe.db.sql(
-		"select generated_stock_entry from `tabCVS Stock Entry Import` where name=%s for update",
-		(name,),
-		as_dict=True,
-	)
-	existing_name = locked[0].generated_stock_entry if locked else None
-
-	if existing_name:
-		existing = frappe.db.get_value("Stock Entry", existing_name, ["name", "docstatus"], as_dict=True)
-		if existing and existing.docstatus != 2:
-			frappe.throw(
-				_("A Stock Entry has already been generated for this document: {0}").format(
-					frappe.get_desk_link("Stock Entry", existing.name)
-				)
-			)
-		# The previously generated Stock Entry was cancelled/deleted — allow
-		# a fresh one to be generated below instead of staying stuck.
-
-	if not doc.company:
-		frappe.throw(_("Please select a Company."))
-	if not doc.source_warehouse:
-		frappe.throw(_("Please select a Source Warehouse."))
-	if not doc.items:
-		frappe.throw(_("Please extract or add at least one item before generating the Stock Entry."))
-
-	se_meta = frappe.get_meta("Stock Entry")
-	sed_meta = frappe.get_meta("Stock Entry Detail")
-
-	warnings = []
-	se_items = []
-
-	for row in doc.items:
-		if not row.item_code:
-			frappe.throw(_("Row #{0}: Please select an Item Code before generating the Stock Entry.").format(row.idx))
-
-		item = frappe.db.get_value("Item", row.item_code, ["disabled", "is_stock_item"], as_dict=True)
-		if not item:
-			frappe.throw(_("Row #{0}: Item {1} does not exist.").format(row.idx, row.item_code))
-		if item.disabled:
-			frappe.throw(_("Row #{0}: Item {1} is disabled.").format(row.idx, row.item_code))
-		if not item.is_stock_item:
-			frappe.throw(_("Row #{0}: Item {1} is not a stock item.").format(row.idx, row.item_code))
-
-		if not row.issued_qty or row.issued_qty <= 0:
-			frappe.throw(_("Row #{0}: Issued Qty must be greater than zero for Item {1}.").format(row.idx, row.item_code))
-
-		if row.batch_no:
-			batch_item = frappe.db.get_value("Batch", row.batch_no, "item")
-			if not batch_item:
-				frappe.throw(_("Row #{0}: Batch {1} does not exist.").format(row.idx, row.batch_no))
-			if batch_item != row.item_code:
-				frappe.throw(
-					_("Row #{0}: Batch {1} does not belong to Item {2}.").format(row.idx, row.batch_no, row.item_code)
-				)
-
-		# UOM is extracted/user-chosen and is never silently replaced with Stock
-		# UOM here — only checked, with a review warning if it doesn't look
-		# configured for this Item. Stock UOM is always ERP-controlled.
-		stock_uom = item_matcher.get_stock_uom(row.item_code)
-		row_uom = row.uom or stock_uom
-		is_valid, uom_warning = item_matcher.check_uom(row.item_code, row_uom)
-		if not is_valid:
-			warnings.append(_("Row {0}: {1}").format(row.idx, uom_warning))
-
-		conversion_factor = get_conversion_factor(row.item_code, row_uom).get("conversion_factor") or 1.0
-
-		se_row = {
-			"item_code": row.item_code,
-			"qty": row.issued_qty,
-			"uom": row_uom,
-			"stock_uom": stock_uom,
-			"conversion_factor": conversion_factor,
-			"s_warehouse": doc.source_warehouse,
+		return {
+			"rows": len(self.items),
+			"needs_review": sum(1 for r in self.items if r.match_status in REVIEW_STATUSES),
+			"date_unreadable": bool(data["posting_date"] and not self.posting_date),
 		}
-		if sed_meta.has_field("requested_qty"):
-			se_row["requested_qty"] = row.requested_qty
-		if row.batch_no:
-			se_row["batch_no"] = row.batch_no
-			se_row["use_serial_batch_fields"] = 1
 
-		se_items.append(se_row)
+	@frappe.whitelist()
+	def generate_stock_entry(self):
+		self.check_permission("write")
 
-	opr_value = None
-	if doc.opr_number:
-		if frappe.db.exists("Order Processing Request", doc.opr_number):
-			opr_value = doc.opr_number
-		else:
-			warnings.append(
-				_("OPR {0} was not found in Order Processing Request — left blank on the Stock Entry.").format(
-					doc.opr_number
+		# Row lock: two simultaneous requests can't both pass the duplicate check.
+		existing = frappe.db.sql(
+			"select generated_stock_entry from `tabCVS Stock Entry Import` where name=%s for update",
+			(self.name,),
+		)[0][0]
+		if existing and frappe.db.get_value("Stock Entry", existing, "docstatus") not in (None, 2):
+			frappe.throw(
+				_("Stock Entry {0} has already been generated from this document.").format(
+					frappe.get_desk_link("Stock Entry", existing)
 				)
 			)
 
-	se = frappe.new_doc("Stock Entry")
-	se.stock_entry_type = "Material Issue"
-	se.purpose = "Material Issue"
-	se.company = doc.company
-	if doc.posting_date:
-		se.posting_date = doc.posting_date
-	se.from_warehouse = doc.source_warehouse
-	if se_meta.has_field("job_number"):
-		se.job_number = doc.job_number
-	if opr_value and se_meta.has_field("custom_opr"):
-		se.custom_opr = opr_value
+		if not self.source_warehouse:
+			frappe.throw(_("Please select a Source Warehouse."))
+		if not self.items:
+			frappe.throw(_("There are no items to issue."))
 
-	for row in se_items:
-		se.append("items", row)
+		has_requested_qty = frappe.get_meta("Stock Entry Detail").has_field("requested_qty")
+		se_meta = frappe.get_meta("Stock Entry")
+		warnings = []
 
-	# Standard document insert — ERPNext's own controller handles valuation,
-	# UOM conversion, warehouse validation, and (for batch items) Serial and
-	# Batch Bundle creation. No ignore_permissions: the user's own Stock
-	# Entry "create" permission is enforced exactly as it would be from the
-	# Desk UI.
-	se.insert()
+		se = frappe.new_doc("Stock Entry")
+		se.update({
+			"stock_entry_type": "Material Issue",
+			"purpose": "Material Issue",
+			"company": self.company,
+			"from_warehouse": self.source_warehouse,
+		})
+		if self.posting_date:
+			se.update({"posting_date": self.posting_date, "set_posting_time": 1})
+		if se_meta.has_field("job_number"):
+			se.job_number = self.job_number
+		if self.opr_number:
+			if se_meta.has_field("custom_opr") and frappe.db.exists("Order Processing Request", self.opr_number):
+				se.custom_opr = self.opr_number
+			else:
+				warnings.append(_("OPR {0} was not found, so it was left blank on the Stock Entry.").format(self.opr_number))
 
-	doc.generated_stock_entry = se.name
-	doc.save()
+		for row in self.items:
+			stock_uom = self._validate_row(row)
+			uom = row.uom or stock_uom
+			if warning := item_matcher.uom_warning(row.item_code, row.uom, stock_uom):
+				warnings.append(_("Row {0}: {1}").format(row.idx, warning))
 
-	return {"status": 1, "stock_entry": se.name, "warnings": warnings}
+			se_row = {
+				"item_code": row.item_code,
+				"qty": row.issued_qty,
+				"uom": uom,
+				"stock_uom": stock_uom,
+				"conversion_factor": get_conversion_factor(row.item_code, uom)["conversion_factor"],
+				"s_warehouse": self.source_warehouse,
+			}
+			if has_requested_qty:
+				se_row["requested_qty"] = row.requested_qty
+			if row.batch_no:
+				se_row.update({"batch_no": row.batch_no, "use_serial_batch_fields": 1})
+			se.append("items", se_row)
+
+		se.insert()  # draft; ERPNext computes rates, valuation and batch bundles
+
+		self.generated_stock_entry = se.name
+		self.save()
+		return {"stock_entry": se.name, "warnings": warnings}
+
+	def _validate_row(self, row):
+		if not row.item_code:
+			frappe.throw(_("Row {0}: Please select an Item Code.").format(row.idx))
+		item = frappe.db.get_value("Item", row.item_code, ["disabled", "is_stock_item", "stock_uom"], as_dict=True)
+		if not item or item.disabled or not item.is_stock_item:
+			frappe.throw(_("Row {0}: Item {1} does not exist, is disabled, or is not a stock item.").format(row.idx, row.item_code))
+		if row.issued_qty <= 0:
+			frappe.throw(_("Row {0}: Issued Qty must be greater than zero.").format(row.idx))
+		if row.batch_no and frappe.db.get_value("Batch", row.batch_no, "item") != row.item_code:
+			frappe.throw(_("Row {0}: Batch {1} does not belong to Item {2}.").format(row.idx, row.batch_no, row.item_code))
+		return item.stock_uom
+
+
+def _valid_date(value):
+	try:
+		return getdate(value) if value else None
+	except Exception:
+		return None
+
+
+def _check_batch(batch_id, item_code):
+	"""Only keep a printed Batch if it exists and belongs to the matched Item."""
+	if not batch_id:
+		return "", None
+	batch_item = frappe.db.get_value("Batch", batch_id, "item")
+	if not batch_item:
+		return "", _('Batch "{0}" was not found. Please verify.').format(batch_id)
+	if batch_item != item_code:
+		return "", _('Batch "{0}" belongs to Item {1}. Please verify.').format(batch_id, batch_item)
+	return batch_id, None
 
 
 @frappe.whitelist()
 def save_manual_match_alias(original_description, item_code, source_name=None):
-	"""
-	Called when a user manually corrects an Item Code on the Items grid, so
-	the same printed description resolves automatically next time.
-	"""
-	item_matcher.upsert_alias(
-		original_description,
-		item_code,
-		source="CVS Stock Entry Import",
-		created_from=source_name,
-	)
+	frappe.has_permission("CVS Item Matching Alias", "create", throw=True)
+	item_matcher.save_alias(original_description, item_code, source_name)
