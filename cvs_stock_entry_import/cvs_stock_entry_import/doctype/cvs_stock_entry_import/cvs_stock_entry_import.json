@@ -36,8 +36,7 @@
    "fieldname": "source_warehouse",
    "fieldtype": "Link",
    "label": "Source Warehouse",
-   "options": "Warehouse",
-   "description": "Every item row is issued from this Warehouse."
+   "options": "Warehouse"
   },
   {
    "fieldname": "column_break_doc",
@@ -85,8 +84,7 @@
   {
    "fieldname": "opr_number",
    "fieldtype": "Data",
-   "label": "OPR",
-   "description": "Checked against Order Processing Request when generating the Stock Entry. Kept as free text here (not a Link) so this document can always be saved during review, even before the OPR text is corrected. Left blank on the Stock Entry if no matching record is found — never blocks generation by itself."
+   "label": "OPR"
   },
   {
    "fieldname": "section_break_items",
@@ -121,7 +119,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-05 00:00:00.000000",
+ "modified": "2026-10-06 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "CVS Stock Entry Import",
  "name": "CVS Stock Entry Import",

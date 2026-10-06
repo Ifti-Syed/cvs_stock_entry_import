@@ -1,3 +1,5 @@
+import re
+
 import frappe
 from erpnext.stock.get_item_details import get_conversion_factor
 from frappe import _
@@ -23,7 +25,7 @@ class CVSStockEntryImport(Document):
 
 		self.posting_date = _valid_date(data["posting_date"])
 		self.job_number = data["job_number"]
-		self.opr_number = data["opr_number"]
+		self.opr_number = _resolve_opr(data["opr_number"]) or data["opr_number"]
 		self.set("items", [])
 		for row in data["items"]:
 			match = item_matcher.match_row(row["item_code_on_document"], row["description"])
@@ -84,8 +86,9 @@ class CVSStockEntryImport(Document):
 		if se_meta.has_field("job_number"):
 			se.job_number = self.job_number
 		if self.opr_number:
-			if se_meta.has_field("custom_opr") and frappe.db.exists("Order Processing Request", self.opr_number):
-				se.custom_opr = self.opr_number
+			opr = _resolve_opr(self.opr_number)
+			if opr and se_meta.has_field("custom_opr"):
+				se.custom_opr = opr
 			else:
 				warnings.append(_("OPR {0} was not found, so it was left blank on the Stock Entry.").format(self.opr_number))
 
@@ -126,6 +129,21 @@ class CVSStockEntryImport(Document):
 		if row.batch_no and frappe.db.get_value("Batch", row.batch_no, "item") != row.item_code:
 			frappe.throw(_("Row {0}: Batch {1} does not belong to Item {2}.").format(row.idx, row.batch_no, row.item_code))
 		return item.stock_uom
+
+
+def _resolve_opr(text):
+	"""Exact OPR name, or the paper's "OPR-26-02144" style as "OPR-2602144" if that record exists."""
+	text = (text or "").strip()
+	if not text:
+		return None
+	if frappe.db.exists("Order Processing Request", text):
+		return text
+	m = re.fullmatch(r"opr\W*([\d\W]+)", text, re.IGNORECASE)
+	if m:
+		name = "OPR-" + re.sub(r"\D", "", m.group(1))
+		if frappe.db.exists("Order Processing Request", name):
+			return name
+	return None
 
 
 def _valid_date(value):

@@ -82,11 +82,18 @@ frappe.ui.form.on("CVS Stock Entry Import", {
 frappe.ui.form.on("CVS Stock Entry Import Item", {
 	item_code(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
-		if (!row.item_code) return;
-		frappe.model.set_value(cdt, cdn, {
-			match_status: "Manual Selection",
-			match_confidence: 100,
-			match_notes: __("Item Code selected manually."),
+		if (!row.item_code) {
+			frappe.model.set_value(cdt, cdn, { item_name: "", stock_uom: "" });
+			return;
+		}
+		frappe.db.get_value("Item", row.item_code, ["item_name", "stock_uom"]).then(({ message }) => {
+			frappe.model.set_value(cdt, cdn, {
+				item_name: message.item_name,
+				stock_uom: message.stock_uom,
+				match_status: "Manual Selection",
+				match_confidence: 100,
+				match_notes: __("Item Code selected manually."),
+			});
 		});
 		if (row.original_description) {
 			frappe.call({

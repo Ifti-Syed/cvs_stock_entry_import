@@ -24,26 +24,26 @@
    "fieldname": "gpt_key",
    "fieldtype": "Password",
    "label": "GPT API Key",
-   "reqd": 1
+   "reqd": 1,
+   "length": 500
   },
   {
    "fieldname": "gpt_model",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "label": "GPT API Model",
    "default": "gpt-6-luna",
    "reqd": 1,
-   "description": "Exact OpenAI API model ID, e.g. gpt-6-luna, gpt-5.6-luna, gpt-4o-mini. Must be vision-capable. Check platform.openai.com/docs/models for the current list."
+   "options": "gpt-6-luna\ngpt-5.6-luna\ngpt-5.6-terra\ngpt-5-mini\ngpt-4o-mini\ngpt-4o"
   },
   {
    "fieldname": "default_source_warehouse",
    "fieldtype": "Link",
    "label": "Default Source Warehouse",
-   "options": "Warehouse",
-   "description": "Optional. Used to pre-fill Source Warehouse on a new CVS Stock Entry Import for this Company. Can always be changed per document."
+   "options": "Warehouse"
   }
  ],
  "links": [],
- "modified": "2026-10-05 00:00:00.000000",
+ "modified": "2026-10-06 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "CVS Stock Entry Import",
  "name": "CVS Stock Entry Import Setting",

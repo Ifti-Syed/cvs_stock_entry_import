@@ -25,18 +25,17 @@
   {
    "fieldname": "original_description",
    "fieldtype": "Data",
-   "label": "Original Description",
+   "label": "Description",
    "read_only": 1,
    "in_list_view": 1,
-   "columns": 3,
-   "description": "Exactly as extracted from the Material Issuance Summary. Never overwritten by the matched Item's name."
+   "columns": 3
   },
   {
    "fieldname": "extracted_item_code",
    "fieldtype": "Data",
    "label": "Item Code (on document)",
    "read_only": 1,
-   "description": "Item Code as printed on the document, before validation against the Item master. May be blank if none was printed."
+   "hidden": 1
   },
   {
    "fieldname": "item_code",
@@ -61,8 +60,7 @@
    "label": "UOM",
    "options": "UOM",
    "in_list_view": 1,
-   "columns": 1,
-   "description": "Exactly as extracted from the document. Never auto-replaced with Stock UOM — if it isn't valid for the selected Item, generation will flag it for review instead of silently changing it."
+   "columns": 1
   },
   {
    "fieldname": "stock_uom",
@@ -72,8 +70,7 @@
    "fetch_from": "item_code.stock_uom",
    "read_only": 1,
    "in_list_view": 1,
-   "columns": 1,
-   "description": "ERPNext's Stock UOM for the matched Item. Always ERP-controlled, never extracted or guessed."
+   "columns": 1
   },
   {
    "fieldname": "requested_qty",
@@ -123,13 +120,12 @@
    "fieldname": "match_notes",
    "fieldtype": "Small Text",
    "label": "Match Notes",
-   "read_only": 1,
-   "description": "Why this match was chosen, and the candidate Items when a choice is needed."
+   "read_only": 1
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-10-05 00:00:00.000000",
+ "modified": "2026-10-06 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "CVS Stock Entry Import",
  "name": "CVS Stock Entry Import Item",

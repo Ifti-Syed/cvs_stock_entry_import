@@ -166,6 +166,14 @@ def _result(item, status, confidence, notes, alternatives=None):
 
 
 def match_row(item_code_on_document, description):
+	result = _match(item_code_on_document, description)
+	printed = (item_code_on_document or "").strip()
+	if printed and printed != result["item_code"]:
+		result["match_notes"] = f'Item Code "{printed}" on the document was not found. {result["match_notes"]}'
+	return result
+
+
+def _match(item_code_on_document, description):
 	item = find_item(item_code_on_document)
 	if item:
 		return _result(item, "Exact Item Code", 100, "Item Code on the document exists in the Item master.")
