@@ -37,6 +37,8 @@ _MATERIALS = {"gi", "ss", "ms", "al"}
 _GRADE_RE = re.compile(r"\b(g\d{2,3}|a?z\d{2,3}|ss\d{3}l?|ms\d{2,3})\b")
 _DIM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*[x×]\s*(\d+(?:\.\d+)?))?")
 _WORD_RE = re.compile(r"[a-z0-9]+")
+# Standalone sizes like "20mm" or a bare "20" (not part of 0.8x1219, fr20, 2m, ...).
+_SIZE_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(mm)?(?![\w.])")
 
 _ITEM_FIELDS = ["item_code", "item_name", "stock_uom", "brand", "disabled"]
 _ITEM_SPEC_FIELDS = ["grade", "size", "guage"]  # site custom fields, used only if present
@@ -56,6 +58,11 @@ def normalize_description(text):
 	return re.sub(r"\s+", " ", t).strip()
 
 
+def _words(normalized):
+	# "gi-fr20-pyrosafe" -> "gi fr20 pyrosafe" so each part can match on its own.
+	return " ".join(_WORD_RE.findall(normalized))
+
+
 def _brand_re():
 	"""Regex of all Brand master names, built once per request."""
 	if not hasattr(frappe.local, "cvs_brand_re"):
@@ -68,8 +75,11 @@ def _brand_re():
 	return frappe.local.cvs_brand_re
 
 
-def _spec_tokens(normalized, item_brand=None):
+def _spec_tokens(normalized, item_brand=None, explicit_sizes_only=False):
 	words = set(_WORD_RE.findall(normalized))
+	sizes = {
+		float(num) for num, unit in _SIZE_RE.findall(normalized) if unit or not explicit_sizes_only
+	}
 	grades = set(_GRADE_RE.findall(normalized))
 	brand_re = _brand_re()
 	brands = set(brand_re.findall(normalized)) if brand_re else set()
@@ -77,6 +87,7 @@ def _spec_tokens(normalized, item_brand=None):
 		brands.add(normalize_description(item_brand))
 	return {
 		"dimensions": [tuple(sorted(float(p) for p in m.groups() if p)) for m in _DIM_RE.finditer(normalized)],
+		"sizes": sizes,
 		"grades": grades,
 		"materials": (words & _MATERIALS) | {g[:2] for g in grades if g[:2] in ("ss", "ms")},
 		"brands": brands,
@@ -94,6 +105,7 @@ def _compare(paper, cand):
 	"""Return (contradicted, bonus). Only attributes present on both sides count."""
 	checks = (
 		("dimensions", 15, _dims_overlap),
+		("sizes", 10, lambda a, b: bool(a & b)),
 		("grades", 10, lambda a, b: bool(a & b)),
 		("materials", 5, lambda a, b: bool(a & b)),
 		("brands", 10, lambda a, b: bool(a & b)),
@@ -198,9 +210,11 @@ def _match(item_code_on_document, description):
 	paper = _spec_tokens(normalized)
 	scored = []
 	for c in candidates:
-		contradicted, bonus = _compare(paper, _spec_tokens(_candidate_text(c), c.brand))
+		# Item names state sizes with units, so only "20mm"-style values count there.
+		contradicted, bonus = _compare(paper, _spec_tokens(_candidate_text(c), c.brand, explicit_sizes_only=True))
 		if not contradicted:
-			scored.append((min(100.0, fuzz.token_set_ratio(normalized, texts[c.item_code]) * 0.75 + bonus), c))
+			similarity = fuzz.token_set_ratio(_words(normalized), _words(texts[c.item_code]))
+			scored.append((min(100.0, similarity * 0.75 + bonus), c))
 
 	if not scored:
 		return _result(
