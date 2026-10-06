@@ -4,9 +4,10 @@ Deterministic Item matching against the live Item master.
 1. Item Code printed on the document, validated against Item.
 2. Saved alias (CVS Item Matching Alias) from a previous manual selection.
 3. Exact normalized Item Name match.
-4. Fuzzy scoring, where printed technical values (dimensions, grade, material,
-   brand) are hard filters: a candidate that contradicts one is excluded, not
-   down-scored. Values missing from the paper are neutral.
+4. Fuzzy scoring, where printed specifications (dimensions, grade, material)
+   and known Brands (from the Brand master / Item.brand) are hard filters: a
+   candidate that contradicts one is excluded, not down-scored. Values missing
+   from either side, and unrecognised words, are neutral.
 
 Only Item Codes that exist (and are enabled) in Item are ever returned.
 """
@@ -23,17 +24,21 @@ CANDIDATE_FETCH_LIMIT = 300
 CANDIDATES_SHOWN = 5
 
 _STOPWORDS = {"the", "and", "for", "with", "of", "a", "an", "to", "in", "on"}
-_MATERIAL_TOKENS = {"gi", "ms", "ss", "al", "aluminum", "aluminium", "steel", "galvanized", "galvanised", "stainless"}
-# Generic words that never distinguish one Item from another (incl. units).
-_NEUTRAL_WORDS = {
-	"std", "standard", "coil", "roll", "sheet", "item", "duct",
-	"mm", "cm", "sqm", "nos", "pcs", "pkt", "pair", "set", "box", "pack", "kg", "ltr", "mtr", "meter",
-}
-_GRADE_RE = re.compile(r"\b(g\d{2,3}|ss\d{3}l?|ms\d{2,3})\b")
+
+# Equivalent material names -> one canonical code (longer phrases first).
+_MATERIAL_SYNONYMS = (
+	(r"\bstainless steel\b|\bstainless\b", "ss"),
+	(r"\bgalvani[sz]ed iron\b|\bgalvani[sz]ed\b", "gi"),
+	(r"\bmild steel\b", "ms"),
+	(r"\balumin(?:i)?um\b", "al"),
+)
+_MATERIALS = {"gi", "ss", "ms", "al"}
+# Grades, incl. coating grades: G90/G60, Z275/Z120, AZ150/AZ200, SS304/SS316L, MS..
+_GRADE_RE = re.compile(r"\b(g\d{2,3}|a?z\d{2,3}|ss\d{3}l?|ms\d{2,3})\b")
 _DIM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*[x×]\s*(\d+(?:\.\d+)?))?")
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
-_ITEM_FIELDS = ["item_code", "item_name", "stock_uom", "disabled"]
+_ITEM_FIELDS = ["item_code", "item_name", "stock_uom", "brand", "disabled"]
 _ITEM_SPEC_FIELDS = ["grade", "size", "guage"]  # site custom fields, used only if present
 
 
@@ -45,21 +50,36 @@ def normalize_description(text):
 	t = re.sub(r"(\d)\s+(mm|cm|m|sqm)\b", r"\1\2", t)
 	t = _DIM_RE.sub(lambda m: "x".join("%g" % float(p) for p in m.groups() if p), t)
 	t = re.sub(r"[,;]+", " ", t)
+	for pattern, code in _MATERIAL_SYNONYMS:
+		t = re.sub(pattern, code, t)
+	t = re.sub(r"\bss\s+(\d{3}l?)\b", r"ss\1", t)  # "stainless steel 316l" -> "ss316l"
 	return re.sub(r"\s+", " ", t).strip()
 
 
-def _spec_tokens(normalized):
+def _brand_re():
+	"""Regex of all Brand master names, built once per request."""
+	if not hasattr(frappe.local, "cvs_brand_re"):
+		names = sorted(
+			{normalize_description(b) for b in frappe.get_all("Brand", pluck="name")} - {""}, key=len, reverse=True
+		)
+		frappe.local.cvs_brand_re = (
+			re.compile(r"\b(" + "|".join(re.escape(n) for n in names) + r")\b") if names else None
+		)
+	return frappe.local.cvs_brand_re
+
+
+def _spec_tokens(normalized, item_brand=None):
 	words = set(_WORD_RE.findall(normalized))
+	grades = set(_GRADE_RE.findall(normalized))
+	brand_re = _brand_re()
+	brands = set(brand_re.findall(normalized)) if brand_re else set()
+	if item_brand:
+		brands.add(normalize_description(item_brand))
 	return {
 		"dimensions": [tuple(sorted(float(p) for p in m.groups() if p)) for m in _DIM_RE.finditer(normalized)],
-		"grades": set(_GRADE_RE.findall(normalized)),
-		"materials": words & _MATERIAL_TOKENS,
-		# Leftover alphabetic words are usually a brand/variant (e.g. "agis", "pyrosafe").
-		"variants": {
-			w for w in words
-			if w.isalpha() and len(w) >= 3 and w not in _STOPWORDS
-			and w not in _MATERIAL_TOKENS and w not in _NEUTRAL_WORDS
-		},
+		"grades": grades,
+		"materials": (words & _MATERIALS) | {g[:2] for g in grades if g[:2] in ("ss", "ms")},
+		"brands": brands,
 	}
 
 
@@ -76,7 +96,7 @@ def _compare(paper, cand):
 		("dimensions", 15, _dims_overlap),
 		("grades", 10, lambda a, b: bool(a & b)),
 		("materials", 5, lambda a, b: bool(a & b)),
-		("variants", 10, lambda a, b: bool(a & b)),
+		("brands", 10, lambda a, b: bool(a & b)),
 	)
 	bonus = 0
 	for key, weight, agrees in checks:
@@ -170,7 +190,7 @@ def match_row(item_code_on_document, description):
 	paper = _spec_tokens(normalized)
 	scored = []
 	for c in candidates:
-		contradicted, bonus = _compare(paper, _spec_tokens(_candidate_text(c)))
+		contradicted, bonus = _compare(paper, _spec_tokens(_candidate_text(c), c.brand))
 		if not contradicted:
 			scored.append((min(100.0, fuzz.token_set_ratio(normalized, texts[c.item_code]) * 0.75 + bonus), c))
 
