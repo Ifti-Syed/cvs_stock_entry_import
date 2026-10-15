@@ -3,8 +3,9 @@ frappe.ui.form.on("CVS Stock Entry Import", {
 		frm.set_query("cvs_setting", () => ({
 			filters: frm.doc.company ? { company: frm.doc.company } : {},
 		}));
-		frm.set_query("item_code", "items", () => ({
-			filters: { disabled: 0, is_stock_item: 1 },
+		frm.set_query("item_code", "items", (doc, cdt, cdn) => ({
+			query: "cvs_stock_entry_import.cvs_stock_entry_import.doctype.cvs_stock_entry_import.cvs_stock_entry_import.item_query",
+			filters: { is_stock_item: 1, suggested: locals[cdt][cdn].suggested_items || "" },
 		}));
 		frm.set_query("batch_no", "items", (doc, cdt, cdn) => ({
 			filters: { item: locals[cdt][cdn].item_code, disabled: 0 },

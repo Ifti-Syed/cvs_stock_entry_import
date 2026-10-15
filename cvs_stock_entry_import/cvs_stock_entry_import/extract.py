@@ -32,15 +32,17 @@ HEADER:
 ITEMS (one object per table row):
 - item_code_on_document: Item Code only if printed (e.g. "2020111"), else "". Never copy the Job No.,
   OPR No., or Batch ID here.
-- description: exactly as written. Preserve dimensions, grade (G90), material (GI/SS/MS),
-  thickness and brand exactly; do not reorder or clean up.
+- description: EVERY word exactly as written, in the written order (e.g. "Coil GI JSW 0.6mm" must not
+  become "G.I Coil 0.6mm"). Never drop a word: brand names (e.g. JSW, AGIS), grade (G90), material
+  (GI/SS/MS), type and every dimension are what identify the Item. Do not reorder or clean up.
 - uom: unit as written (e.g. "m", "Sqm", "Pkt", "Nos"), else "".
 - requested_qty: Requested Qty column. If the document has only one quantity column, put it in
   issued_qty and use 0 here.
 - issued_qty: Issued Qty column. A dash "-" or blank cell is 0.
-- batch_id: Batch ID exactly as written, else "".
+- batch_id: Batch ID exactly as written (letters and digits, e.g. "VG1A0A0498"; take care to tell
+  0/O and 1/I apart), else "".
 
-Skip header rows, totals, signature/footer rows (Requested by, Issued by, Entered by, Date Entered),
+{brands}Skip header rows, totals, signature/footer rows (Requested by, Issued by, Entered by, Date Entered),
 and empty rows.
 
 {
@@ -141,7 +143,15 @@ def extract_document(file_url, setting_name):
 	if _supports_temperature(setting.gpt_model):
 		request["temperature"] = 0
 
-	prompt, last_error, output = PROMPT, "", ""
+	brands = frappe.get_all("Brand", pluck="name", limit_page_length=200)
+	hint = (
+		"BRAND SPELLINGS (a spelling guide only): "
+		+ ", ".join(brands)
+		+ ".\nIf a handwritten word clearly looks like one of these, write it with that spelling. "
+		"Never add a brand that is not written on the document.\n\n"
+	) if brands else ""
+	base_prompt = PROMPT.replace("{brands}", hint)
+	prompt, last_error, output = base_prompt, "", ""
 	for attempt in range(1, MAX_ATTEMPTS + 1):
 		try:
 			resp = client.responses.create(
@@ -152,7 +162,7 @@ def extract_document(file_url, setting_name):
 			if data:
 				return _normalize(data)
 			last_error = "The AI response was not valid JSON."
-			prompt = "Your previous reply was not valid JSON. Reply with ONLY the JSON object.\n\n" + PROMPT
+			prompt = "Your previous reply was not valid JSON. Reply with ONLY the JSON object.\n\n" + base_prompt
 		except Exception as e:
 			last_error = str(e)
 		if attempt < MAX_ATTEMPTS:

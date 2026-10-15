@@ -19,7 +19,8 @@
   "match_status",
   "match_confidence",
   "section_break_notes",
-  "match_notes"
+  "match_notes",
+  "suggested_items"
  ],
  "fields": [
   {
@@ -96,7 +97,7 @@
    "fieldname": "match_status",
    "fieldtype": "Select",
    "label": "Match Status",
-   "options": "\nExact Item Code\nExact Name Match\nHigh Confidence\nPossible Match\nMultiple Matches\nManual Selection\nNo Match",
+   "options": "\nExact Item Code\nBatch Match\nExact Name Match\nHigh Confidence\nPossible Match\nMultiple Matches\nManual Selection\nNo Match",
    "read_only": 1,
    "in_list_view": 1,
    "columns": 1
@@ -117,11 +118,18 @@
    "fieldtype": "Small Text",
    "label": "Match Notes",
    "read_only": 1
+  },
+  {
+   "fieldname": "suggested_items",
+   "fieldtype": "Small Text",
+   "label": "Suggested Items",
+   "hidden": 1,
+   "read_only": 1
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-10-06 00:00:01.000000",
+ "modified": "2026-10-15 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "CVS Stock Entry Import",
  "name": "CVS Stock Entry Import Item",

@@ -1,6 +1,7 @@
 import re
 
 import frappe
+from erpnext.controllers.queries import item_query as item_search
 from erpnext.stock.get_item_details import get_conversion_factor
 from frappe import _
 from frappe.model.document import Document
@@ -28,10 +29,9 @@ class CVSStockEntryImport(Document):
 		self.opr_number = _resolve_opr(data["opr_number"]) or data["opr_number"]
 		self.set("items", [])
 		for row in data["items"]:
-			match = item_matcher.match_row(row["item_code_on_document"], row["description"])
-			batch_no, batch_note = _check_batch(row["batch_id"], match["item_code"])
-			if batch_note:
-				match["match_notes"] = f"{match['match_notes']} {batch_note}"
+			match = item_matcher.match_row(
+				row["item_code_on_document"], row["description"], row["uom"], row["batch_id"]
+			)
 			self.append("items", {
 				**match,
 				"original_description": row["description"],
@@ -39,7 +39,6 @@ class CVSStockEntryImport(Document):
 				"uom": row["uom"],
 				"requested_qty": row["requested_qty"],
 				"issued_qty": row["issued_qty"],
-				"batch_no": batch_no,
 			})
 		self.save()
 
@@ -132,18 +131,15 @@ class CVSStockEntryImport(Document):
 
 
 def _resolve_opr(text):
-	"""Exact OPR name, or the paper's "OPR-26-02144" style as "OPR-2602144" if that record exists."""
+	"""Exact OPR name, or the paper's "OPR-26-02144" / "26-02144" as "OPR-2602144" if that record exists."""
 	text = (text or "").strip()
 	if not text:
 		return None
 	if frappe.db.exists("Order Processing Request", text):
 		return text
-	m = re.fullmatch(r"opr\W*([\d\W]+)", text, re.IGNORECASE)
-	if m:
-		name = "OPR-" + re.sub(r"\D", "", m.group(1))
-		if frappe.db.exists("Order Processing Request", name):
-			return name
-	return None
+	m = re.fullmatch(r"(?:opr\W*)?(\d[\d\W]*)", text, re.IGNORECASE)
+	name = "OPR-" + re.sub(r"\D", "", m.group(1)) if m else None
+	return name if name and frappe.db.exists("Order Processing Request", name) else None
 
 
 def _valid_date(value):
@@ -153,19 +149,21 @@ def _valid_date(value):
 		return None
 
 
-def _check_batch(batch_id, item_code):
-	"""Only keep a printed Batch if it exists and belongs to the matched Item."""
-	if not batch_id:
-		return "", None
-	batch_item = frappe.db.get_value("Batch", batch_id, "item")
-	if not batch_item:
-		return "", _('Batch "{0}" was not found. Please verify.').format(batch_id)
-	if batch_item != item_code:
-		return "", _('Batch "{0}" belongs to Item {1}. Please verify.').format(batch_id, batch_item)
-	return batch_id, None
-
-
 @frappe.whitelist()
 def save_manual_match_alias(original_description, item_code, source_name=None):
 	frappe.has_permission("CVS Item Matching Alias", "create", throw=True)
 	item_matcher.save_alias(original_description, item_code, source_name)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def item_query(doctype, txt, searchfield, start, page_len, filters):
+	"""ERPNext's own Item search, with this row's suggested Items listed first."""
+	filters = frappe.parse_json(filters) or {}
+	suggested = [c for c in (filters.pop("suggested", "") or "").split("\n") if c]
+	if not suggested:
+		return item_search("Item", txt, searchfield, start, page_len, filters)
+
+	first = item_search("Item", txt, searchfield, 0, page_len, {**filters, "name": ["in", suggested]}) if start == 0 else []
+	rest = item_search("Item", txt, searchfield, start, page_len - len(first), {**filters, "name": ["not in", suggested]})
+	return list(first) + list(rest)
