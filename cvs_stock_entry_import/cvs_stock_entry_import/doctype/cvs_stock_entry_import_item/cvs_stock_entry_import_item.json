@@ -9,6 +9,9 @@
  "field_order": [
   "original_description",
   "extracted_item_code",
+  "extracted_description",
+  "extracted_uom",
+  "extracted_batch_id",
   "item_code",
   "item_name",
   "uom",
@@ -27,7 +30,6 @@
    "fieldname": "original_description",
    "fieldtype": "Data",
    "label": "Description",
-   "read_only": 1,
    "in_list_view": 1,
    "columns": 2
   },
@@ -37,6 +39,24 @@
    "label": "Item Code (on document)",
    "read_only": 1,
    "hidden": 1
+  },
+  {
+   "fieldname": "extracted_description",
+   "fieldtype": "Data",
+   "label": "Description (as read by AI)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "extracted_uom",
+   "fieldtype": "Data",
+   "label": "UOM (as read by AI)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "extracted_batch_id",
+   "fieldtype": "Data",
+   "label": "Batch ID (as read by AI)",
+   "read_only": 1
   },
   {
    "fieldname": "item_code",

@@ -21,7 +21,8 @@ Extract data from this "Material Issuance Summary" (a stores document recording 
 against a Job and an OPR). It may be printed, handwritten, or both, and may be a photo of paper.
 
 Return ONLY one valid JSON object (no markdown, no comments). Extract ONLY what is printed or written.
-Never invent, guess, or infer. If a value is missing or illegible, use "" for text and 0 for numbers.
+Never invent, guess, or infer. If a text value is missing or illegible, use "". If a quantity is
+illegible, use null: null means "could not read it" and is NOT the same as 0.
 
 HEADER:
 - posting_date: document date as "YYYY-MM-DD". Two-digit years are 20YY. Numeric dates are
@@ -38,7 +39,7 @@ ITEMS (one object per table row):
 - uom: unit as written (e.g. "m", "Sqm", "Pkt", "Nos"), else "".
 - requested_qty: Requested Qty column. If the document has only one quantity column, put it in
   issued_qty and use 0 here.
-- issued_qty: Issued Qty column. A dash "-" or blank cell is 0.
+- issued_qty: Issued Qty column. A dash "-" or an empty cell is 0; an illegible one is null.
 - batch_id: Batch ID exactly as written (letters and digits, e.g. "VG1A0A0498"; take care to tell
   0/O and 1/I apart), else "".
 
@@ -65,11 +66,21 @@ def _str(v):
 	return v.strip() if isinstance(v, str) else ("" if v is None else str(v))
 
 
-def _float(v):
-	try:
-		return float(str(v).replace(",", "").strip()) if v not in (None, "") else 0.0
-	except ValueError:
+def _quantity(v):
+	"""A quantity as a float, or None when it could not be read (null, missing, not a number, negative).
+	A dash is a real 0 (nothing issued), which is different from unreadable."""
+	if isinstance(v, bool) or v is None:
+		return None
+	if isinstance(v, (int, float)):
+		return float(v) if v >= 0 else None
+	text = str(v).replace(",", "").strip()
+	if text in ("-", "\u2013", "\u2014"):
 		return 0.0
+	try:
+		value = float(text)
+	except ValueError:
+		return None
+	return value if value >= 0 else None
 
 
 def _parse_json(text):
@@ -86,23 +97,41 @@ def _parse_json(text):
 
 
 def _normalize(payload):
-	items = payload.get("items") if isinstance(payload.get("items"), list) else []
+	"""Validate the model's JSON against the expected shape and return clean values.
+
+	Raises ValueError (so the caller retries) if the structure is wrong. Per item, "unreadable" lists the
+	quantity fields that were null or not a number, so they are never mistaken for a real 0.
+	"""
+	if not isinstance(payload.get("items"), list):
+		raise ValueError('"items" must be a list of rows.')
+	for key in ("posting_date", "job_number", "opr_number"):
+		if not isinstance(payload.get(key, ""), (str, int, float, type(None))):
+			raise ValueError(f'"{key}" must be text.')
+
+	items = []
+	for it in payload["items"]:
+		if not isinstance(it, dict):
+			raise ValueError("Every entry in \"items\" must be an object.")
+		if not (_str(it.get("description")) or _str(it.get("item_code_on_document"))):
+			continue
+		row = {
+			"item_code_on_document": _str(it.get("item_code_on_document")),
+			"description": _str(it.get("description")),
+			"uom": _str(it.get("uom")),
+			"requested_qty": _quantity(it.get("requested_qty")),
+			"issued_qty": _quantity(it.get("issued_qty")),
+			"batch_id": _str(it.get("batch_id")),
+		}
+		row["unreadable"] = [k for k in ("requested_qty", "issued_qty") if row[k] is None]
+		for k in row["unreadable"]:
+			row[k] = 0.0
+		items.append(row)
+
 	return {
 		"posting_date": _str(payload.get("posting_date")),
 		"job_number": _str(payload.get("job_number")),
 		"opr_number": _str(payload.get("opr_number")),
-		"items": [
-			{
-				"item_code_on_document": _str(it.get("item_code_on_document")),
-				"description": _str(it.get("description")),
-				"uom": _str(it.get("uom")),
-				"requested_qty": _float(it.get("requested_qty")),
-				"issued_qty": _float(it.get("issued_qty")),
-				"batch_id": _str(it.get("batch_id")),
-			}
-			for it in items
-			if isinstance(it, dict) and (_str(it.get("description")) or _str(it.get("item_code_on_document")))
-		],
+		"items": items,
 	}
 
 
@@ -160,9 +189,14 @@ def extract_document(file_url, setting_name):
 			output = resp.output_text or ""
 			data = _parse_json(output)
 			if data:
-				return _normalize(data)
-			last_error = "The AI response was not valid JSON."
-			prompt = "Your previous reply was not valid JSON. Reply with ONLY the JSON object.\n\n" + base_prompt
+				try:
+					return _normalize(data)
+				except ValueError as e:
+					last_error = f"The AI response did not match the expected format: {e}"
+					prompt = f"Your previous reply did not match the required format ({e}). Reply with ONLY the JSON object.\n\n" + base_prompt
+			else:
+				last_error = "The AI response was not valid JSON."
+				prompt = "Your previous reply was not valid JSON. Reply with ONLY the JSON object.\n\n" + base_prompt
 		except Exception as e:
 			last_error = str(e)
 		if attempt < MAX_ATTEMPTS:

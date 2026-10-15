@@ -8,15 +8,21 @@ Order of evidence:
 4. The description, scored by how much of it an Item covers. Printed specs
    (dimensions, sizes, grade, material, known Brand) are hard filters: a
    conflicting Item is excluded, never merely down-scored. Anything missing
-   from either side is neutral. The paper's UOM nudges the score.
+   from either side is neutral, but a spec the Item has and the paper doesn't print
+   (e.g. dimensions) keeps the match from being auto-accepted. Numbers are compared
+   with their units (25mm is not 25cm; 2m is 2000mm). The paper's UOM nudges the score.
+   Saved aliases and Batch matches are re-checked against the printed description
+   and flagged, never silently trusted, when they conflict.
 
 Only Item Codes that exist (and are enabled) in Item are ever returned.
 """
 
+import itertools
 import re
 from collections import defaultdict
 
 import frappe
+from frappe.utils import flt
 from rapidfuzz import fuzz, process
 
 AUTO_SELECT_THRESHOLD = 90  # score >= this with no close rival -> auto-select
@@ -32,8 +38,8 @@ TYPE_WEIGHT = 3.0  # ...and the type word (corner, flange, coil) matters most
 HINT_MIN_SCORE = 40  # closest-but-conflicting Items below this are not worth showing
 
 _NUM = r"\d+(?:\.\d+)?"
-_UNIT = r"(?:\s*(?:mm|cm|ml|m|l)(?![a-wyz]))?"
-# 0.8x1219, 12mmX3m, 3X25mmX30m -> dimension groups (units between numbers are ignored)
+_UNIT = r"(?:\s*(mm|cm|ml|m|l)(?![a-wyz]))?"
+# 0.8x1219, 12mmX3m, 3X25mmX30m -> dimension groups; groups 1/3/5 are the numbers, 2/4/6 their units
 _DIM_RE = re.compile(rf"({_NUM}){_UNIT}\s*[x×]\s*({_NUM}){_UNIT}(?:\s*[x×]\s*({_NUM}){_UNIT})?")
 _SIZE_RE = re.compile(rf"(?<![\w.])({_NUM})(mm|cm|ml|m|l)?(?![\w.])")  # 20mm, 38ml, or a bare 20
 _TOKEN_RE = re.compile(rf"{_NUM}|[a-z]+")
@@ -50,6 +56,9 @@ _MATERIAL_SYNONYMS = (
 )
 _MATERIALS = {"gi", "ss", "ms", "al"}
 _ATTRIBUTE_WORDS = _MATERIALS | {"fr"}  # words that describe an Item without naming what it is
+# unit -> (kind, size of one unit in the kind's base unit: mm for lengths, ml for volumes)
+_UNIT_BASE = {"mm": ("len", 1.0), "cm": ("len", 10.0), "m": ("len", 1000.0), "ml": ("vol", 1.0), "l": ("vol", 1000.0)}
+SPEC_TOLERANCE = 0.01  # numbers closer than this (in base units) are the same
 _UNIT_WORDS = {"mm", "cm", "ml", "sqm", "nos", "pcs", "pc", "ea", "pkt", "roll", "tube", "ton", "lm", "kg"}
 _STOPWORDS = {"the", "and", "for", "with", "of", "to", "in", "on", "std", "standard", "item"}
 
@@ -65,8 +74,12 @@ def _num(s):
 	return s.rstrip("0").rstrip(".") if "." in s else s
 
 
-def normalize_description(text):
-	"""Make "1.00 X 1219 mm", "1.0x1219mm", "G.I" and "Galvanized" compare equal."""
+def normalize_description(text, keep_units=False):
+	"""Make "1.00 X 1219 mm", "1.0x1219mm", "G.I" and "Galvanized" compare equal.
+
+	The default form drops the units inside dimensions ("12mmx3m" -> "12x3"), which keeps alias keys
+	and word tokens stable. keep_units=True keeps them, for comparing specs.
+	"""
 	if not text:
 		return ""
 	t = re.sub(r"\s+", " ", str(text).strip().lower()).replace("×", "x")
@@ -75,7 +88,8 @@ def normalize_description(text):
 		t = re.sub(pattern, code, t)
 	t = re.sub(r"\bss\s+(\d{3}l?)\b", r"ss\1", t)  # "stainless steel 316l" -> "ss316l"
 	t = re.sub(r"\bfire[ -]?rated\b", "fr", t)
-	t = _DIM_RE.sub(lambda m: "x".join(_num(p) for p in m.groups() if p), t)
+	if not keep_units:
+		t = _DIM_RE.sub(lambda m: "x".join(_num(m.group(i)) for i in (1, 3, 5) if m.group(i)), t)
 	t = re.sub(_NUM, lambda m: _num(m.group()), t)
 	t = re.sub(r"[,;]+", " ", t)
 	return re.sub(r"\s+", " ", t).strip()
@@ -108,7 +122,16 @@ def _brand_re():
 	return frappe.local.cvs_brand_re
 
 
-def _spec_tokens(normalized, brand=None, explicit_sizes_only=False):
+def _qty(number, unit=None):
+	"""A printed number as (as written, kind, in base units): "2m" -> (2.0, "len", 2000.0); a bare "2" has kind None."""
+	kind, factor = _UNIT_BASE.get(unit, (None, 1.0))
+	raw = float(number)
+	return (raw, kind, raw * factor)
+
+
+def _spec_tokens(text, brand=None, explicit_sizes_only=False):
+	"""Comparable specs of a description or Item name. Numbers keep their units (see _qty)."""
+	normalized = normalize_description(text, keep_units=True)
 	words = set(_WORD_RE.findall(normalized))
 	grades = set(_GRADE_RE.findall(normalized))
 	brand_re = _brand_re()
@@ -116,31 +139,60 @@ def _spec_tokens(normalized, brand=None, explicit_sizes_only=False):
 	if brand:
 		brands.add(normalize_description(brand))
 	return {
-		"dims": [tuple(sorted(float(p) for p in m.groups() if p)) for m in _DIM_RE.finditer(normalized)],
-		"sizes": {float(n) for n, unit in _SIZE_RE.findall(normalized) if unit or not explicit_sizes_only},
+		"dims": [[_qty(m.group(i), m.group(i + 1)) for i in (1, 3, 5) if m.group(i)] for m in _DIM_RE.finditer(normalized)],
+		"sizes": [_qty(n, unit) for n, unit in _SIZE_RE.findall(normalized) if unit or not explicit_sizes_only],
 		"grades": grades,
 		"materials": (words & _MATERIALS) | {g[:2] for g in grades if g[:2] in ("ss", "ms")},
 		"brands": brands,
 	}
 
 
-def _dims_overlap(a_dims, b_dims):
-	return any(
-		len(a) == len(b) and all(abs(x - y) <= 0.01 for x, y in zip(a, b))
-		for a in a_dims for b in b_dims
+def _same_qty(a, b):
+	"""Two printed numbers are equal. With units on both they must be the same kind (mm/cm/m, not ml) and equal
+	once converted; a bare number (no unit written) equals the other's figure as written or converted."""
+	(a_raw, a_kind, a_base), (b_raw, b_kind, b_base) = a, b
+	if a_kind and b_kind:
+		return a_kind == b_kind and abs(a_base - b_base) <= SPEC_TOLERANCE
+	return (
+		abs(a_raw - b_raw) <= SPEC_TOLERANCE
+		or (a_kind and abs(a_base - b_raw) <= SPEC_TOLERANCE)
+		or (b_kind and abs(b_base - a_raw) <= SPEC_TOLERANCE)
 	)
+
+
+def _same_dims(a, b):
+	"""Same dimensions in any order (0.8x1219 is 1219x0.8), element by element."""
+	return len(a) == len(b) and any(all(_same_qty(x, y) for x, y in zip(a, order)) for order in itertools.permutations(b))
 
 
 def _contradiction(paper, cand):
 	"""Why the candidate conflicts with what is printed, or "" if it doesn't. Missing data is neutral."""
-	if paper["dims"] and cand["dims"] and not _dims_overlap(paper["dims"], cand["dims"]):
+	if paper["dims"] and cand["dims"] and not any(_same_dims(a, b) for a in paper["dims"] for b in cand["dims"]):
 		return "dimensions differ"
-	cand_numbers = cand["sizes"] | {v for d in cand["dims"] for v in d}
-	if paper["sizes"] and cand_numbers and not (paper["sizes"] & cand_numbers):
-		return "size differs"
+	cand_numbers = cand["sizes"] + [q for d in cand["dims"] for q in d]
+	if cand_numbers and paper["sizes"]:
+		with_units = [q for q in paper["sizes"] if q[1]]
+		# Every printed size with a unit must be on the Item (0.6mm must not pass because 1219mm matches);
+		# bare numbers are only a hint, so one of them in common is enough.
+		missing = (
+			any(not any(_same_qty(p, c) for c in cand_numbers) for p in with_units)
+			if with_units
+			else not any(_same_qty(p, c) for p in paper["sizes"] for c in cand_numbers)
+		)
+		if missing:
+			return "size differs"
 	for key, label in (("grades", "grade"), ("materials", "material"), ("brands", "brand")):
 		if paper[key] and cand[key] and not (paper[key] & cand[key]):
 			return f"{label} differs"
+	return ""
+
+
+def _unverified(paper, cand):
+	"""What the Item specifies that the paper never prints. That is unknown, not a match: it can't be auto-accepted."""
+	if cand["dims"] and not paper["dims"]:
+		return "the Item's dimensions are not printed on the document"
+	if cand["sizes"] and not paper["sizes"] and not paper["dims"]:
+		return "the Item's size is not printed on the document"
 	return ""
 
 
@@ -158,14 +210,14 @@ def _candidate_text(item):
 	parts = [item.get("item_name") or "", item.get("grade") or "", item.get("size") or ""]
 	if item.get("guage"):
 		parts.append("%gmm" % float(item["guage"]))
-	return normalize_description(" ".join(parts))
+	return " ".join(parts)
 
 
 def _entry(item, alt_uoms):
 	text = _candidate_text(item)
 	return frappe._dict(
 		item=item,
-		tokens=_tokens(text),
+		tokens=_tokens(normalize_description(text)),
 		spec=_spec_tokens(text, item.brand, explicit_sizes_only=True),
 		uoms=alt_uoms | {(item.stock_uom or "").lower()},
 	)
@@ -204,6 +256,46 @@ def _batch_item(batch_id):
 	return find_item(batch.item) if batch and not batch.disabled else None
 
 
+def _resembles(normalized, entry):
+	"""Whether the description names the same kind of thing as the Item: a type word in common (e.g. flange,
+	coil), allowing for a misread word. Attribute words like GI/FR don't count; no type word at all is neutral."""
+	words = {t for t in _tokens(normalized) if t.isalpha() and t not in _ATTRIBUTE_WORDS}
+	if not words:
+		return True
+	names = {t for t in entry.tokens if t.isalpha()}
+	return any(
+		w in names or (len(w) >= 5 and process.extractOne(w, names, scorer=fuzz.ratio, score_cutoff=TYPO_CUTOFF))
+		for w in words
+	)
+
+
+def conversion_factor(item_code, uom, stock_uom=None):
+	"""Stock UOM units in one `uom` of the Item: its own UOM table (or its template's), else the global UOM
+	Conversion Factor. None when neither defines it - ERPNext would quietly use 1, which would issue
+	20 Sqm of a Ton item as 20 Ton."""
+	item = frappe.db.get_value("Item", item_code, ["stock_uom", "variant_of"], as_dict=True)
+	if not item:
+		return None
+	stock_uom = stock_uom or item.stock_uom
+	if not uom or uom.lower() == (stock_uom or "").lower():
+		return 1.0
+	factor = frappe.db.get_value(
+		"UOM Conversion Detail",
+		{"parenttype": "Item", "parent": ["in", [item_code, item.variant_of or item_code]], "uom": uom},
+		"conversion_factor",
+	)
+	if not factor:
+		from erpnext.stock.doctype.item.item import get_uom_conv_factor
+
+		factor = get_uom_conv_factor(item_uom(uom), stock_uom)
+	return flt(factor) or None
+
+
+def item_uom(uom):
+	"""The stored name of a UOM (the paper may write "sqm" for "Sqm")."""
+	return frappe.db.get_value("UOM", uom, "name") or uom
+
+
 # --------------------------------------------------------------------------
 # Matching
 # --------------------------------------------------------------------------
@@ -240,9 +332,10 @@ def _paper_weights(normalized, vocab, brands):
 	return weights
 
 
-def _match_description(normalized, uom):
+def _match_description(description, uom):
+	normalized = normalize_description(description)
 	entries, vocab = _index()
-	paper = _spec_tokens(normalized)
+	paper = _spec_tokens(description)
 	weights = _paper_weights(normalized, vocab, paper["brands"])
 	total = sum(weights.values())
 	words = {t for t in weights if not t[0].isdigit()}
@@ -265,12 +358,18 @@ def _match_description(normalized, uom):
 		top_score, top, _ = scored[0]
 		close = [s for s in scored if top_score - s[0] <= CLOSE_CANDIDATE_MARGIN]
 		if len(close) > 1:
+			# Several Items fit equally: never show that as high confidence.
 			return _result(
-				None, "Multiple Matches", top_score,
+				None, "Multiple Matches", min(top_score, REVIEW_THRESHOLD - 1),
 				f"{len(close)} Items fit equally well (e.g. Brand or type not printed). Please select the correct one:",
 				[(e.item, "") for _, e, _ in close],
 			)
 		if top_score >= AUTO_SELECT_THRESHOLD:
+			if unknown := _unverified(paper, top.spec):
+				return _result(
+					top.item, "Possible Match", min(top_score, AUTO_SELECT_THRESHOLD - 1),
+					f"Only candidate, but {unknown}. Please verify.",
+				)
 			return _result(top.item, "High Confidence", top_score, "Best match with no close alternative.")
 		return _result(
 			top.item, "Possible Match", top_score, "Best available match, below auto-accept. Please verify.",
@@ -292,16 +391,35 @@ def _match(item_code, description, uom, batch_id):
 		return _result(item, "Exact Item Code", 100, "Item Code on the document exists in the Item master.")
 
 	normalized = normalize_description(description)
-	item = _find_alias(normalized) if normalized else None
-	if item:
-		return _result(item, "Exact Item Code", 98, "Matched via a saved alias from a previous manual selection.")
+	paper = _spec_tokens(description) if normalized else None
+	batch_item = _batch_item(batch_id)
+
+	alias_item = _find_alias(normalized) if normalized else None
+	if alias_item:
+		# A saved alias is a past human decision, but it is re-checked against this document.
+		problems = []
+		if conflict := _contradiction(paper, _entry(alias_item, set()).spec):
+			problems.append(f"the description conflicts with it ({conflict})")
+		if batch_item and batch_item.item_code != alias_item.item_code:
+			problems.append(f"Batch {batch_id} belongs to {batch_item.item_code} ({batch_item.item_name})")
+		if not problems:
+			return _result(alias_item, "Exact Item Code", 98, "Matched via a saved alias from a previous manual selection.")
+		return _result(
+			alias_item, "Possible Match", 80,
+			f"A saved alias points to this Item, but {'; '.join(problems)}. Please verify.",
+		)
 
 	batch_note = ""
-	batch_item = _batch_item(batch_id)
 	if batch_item:
-		conflict = _contradiction(_spec_tokens(normalized), _entry(batch_item, set()).spec) if normalized else ""
+		entry = _entry(batch_item, set())
+		conflict = _contradiction(paper, entry.spec) if normalized else ""
 		if not conflict:
-			return _result(batch_item, "Batch Match", 96, f"Batch {batch_id} belongs to this Item.")
+			if not normalized or _resembles(normalized, entry):
+				return _result(batch_item, "Batch Match", 96, f"Batch {batch_id} belongs to this Item.")
+			return _result(
+				batch_item, "Possible Match", 75,
+				f"Batch {batch_id} belongs to this Item, but the description does not name the same kind of Item. Please verify.",
+			)
 		batch_note = (
 			f"Batch {batch_id} belongs to {batch_item.item_code} ({batch_item.item_name}), "
 			f"which conflicts with the description ({conflict})."
@@ -310,7 +428,7 @@ def _match(item_code, description, uom, batch_id):
 	if not normalized:
 		return _result(None, "No Match", 0, "No valid Item Code, Batch or description was extracted.")
 
-	result = _match_description(normalized, uom)
+	result = _match_description(description, uom)
 	result["match_notes"] = f"{batch_note} {result['match_notes']}".strip()
 	return result
 
@@ -338,6 +456,13 @@ def match_row(item_code_on_document, description, uom="", batch_id=""):
 		else:
 			result["batch_no"] = batch_id
 
+	if result["item_code"] and uom:
+		factor = conversion_factor(result["item_code"], uom, result["stock_uom"])
+		if factor is None:
+			notes += f' UOM "{uom}" has no conversion to Stock UOM {result["stock_uom"]} for this Item - add one on the Item, or correct the UOM.'
+		elif factor != 1:
+			notes += f" 1 {uom} = {factor:g} {result['stock_uom']}."
+
 	result["match_notes"] = notes.strip()
 	return result
 
@@ -363,14 +488,3 @@ def save_alias(original_description, item_code, created_from=None):
 		"source": "CVS Stock Entry Import",
 		"created_from_stock_entry_import": created_from,
 	}).insert()
-
-
-def uom_warning(item_code, uom, stock_uom):
-	"""Check (never change) that the extracted UOM is configured for the Item."""
-	uom = (uom or "").strip()
-	if not uom or uom.lower() == (stock_uom or "").lower():
-		return None
-	alt_uoms = frappe.get_all("UOM Conversion Detail", filters={"parent": item_code, "parenttype": "Item"}, pluck="uom")
-	if uom.lower() in (u.lower() for u in alt_uoms):
-		return None
-	return f'UOM "{uom}" is not configured for Item {item_code} (Stock UOM {stock_uom}). Please verify.'

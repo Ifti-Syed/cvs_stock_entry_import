@@ -12,6 +12,12 @@ frappe.ui.form.on("CVS Stock Entry Import", {
 		}));
 	},
 
+	refresh(frm) {
+		if (frm.doc.docstatus === 0 && (frm.doc.items || []).length && !frm.doc.generated_stock_entry) {
+			frm.add_custom_button(__("Match Again"), () => match_again(frm), __("Actions"));
+		}
+	},
+
 	cvs_setting(frm) {
 		if (!frm.doc.cvs_setting) return;
 		frappe.db
@@ -57,28 +63,72 @@ frappe.ui.form.on("CVS Stock Entry Import", {
 
 	generate_stock_entry(frm) {
 		frappe.confirm(__("Create a Draft Stock Entry (Material Issue) from this document?"), () =>
-			save_if_needed(frm)
-				.then(() =>
-					frm.call({
-						method: "generate_stock_entry",
-						doc: frm.doc,
-						freeze: true,
-						freeze_message: __("Creating Stock Entry..."),
-					})
-				)
-				.then(({ message }) => {
-					if (!message) return;
-					if (message.warnings.length) {
-						frappe.msgprint({ title: __("Please Review"), message: message.warnings.join("<br>"), indicator: "orange" });
-					}
-					frappe.show_alert({
-						message: __("Stock Entry {0} created.", [frappe.utils.get_form_link("Stock Entry", message.stock_entry, true)]),
-						indicator: "green",
-					});
-				})
+			generate(frm, 0)
 		);
 	},
 });
+
+// Rows still marked "Possible Match" are only the system's best guess, so the user must accept them
+// explicitly before a Stock Entry is created from them.
+function generate(frm, confirm_uncertain) {
+	save_if_needed(frm)
+		.then(() =>
+			frm.call({
+				method: "generate_stock_entry",
+				doc: frm.doc,
+				args: { confirm_uncertain },
+				freeze: true,
+				freeze_message: __("Creating Stock Entry..."),
+			})
+		)
+		.then(({ message }) => {
+			if (!message) return;
+			if (message.needs_confirmation) {
+				const rows = message.needs_confirmation
+					.map(
+						(r) =>
+							`<li><b>${__("Row {0}", [r.idx])}</b>: ${frappe.utils.escape_html(r.description || "")} &rarr; ` +
+							`${frappe.utils.escape_html(r.item_code)} (${frappe.utils.escape_html(r.item_name || "")})<br>` +
+							`<small class="text-muted">${frappe.utils.escape_html(r.notes || "")}</small></li>`
+					)
+					.join("");
+				frappe.confirm(
+					__("These rows are only possible matches. Please confirm each Item is correct:") +
+						`<ul style="margin-top: 8px">${rows}</ul>`,
+					() => generate(frm, 1)
+				);
+				return;
+			}
+			if (message.warnings.length) {
+				frappe.msgprint({ title: __("Please Review"), message: message.warnings.join("<br>"), indicator: "orange" });
+			}
+			frappe.show_alert({
+				message: __("Stock Entry {0} created.", [frappe.utils.get_form_link("Stock Entry", message.stock_entry, true)]),
+				indicator: "green",
+			});
+		});
+}
+
+function match_again(frm) {
+	save_if_needed(frm)
+		.then(() =>
+			frm.call({
+				method: "match_again",
+				doc: frm.doc,
+				freeze: true,
+				freeze_message: __("Matching Items..."),
+			})
+		)
+		.then(({ message }) => {
+			if (!message) return;
+			frappe.show_alert({
+				message: message.needs_review
+					? __("{0} row(s) matched again, {1} need review.", [message.rows, message.needs_review])
+					: __("{0} row(s) matched again.", [message.rows]),
+				indicator: message.needs_review ? "orange" : "green",
+			});
+		});
+}
 
 frappe.ui.form.on("CVS Stock Entry Import Item", {
 	item_code(frm, cdt, cdn) {
@@ -96,12 +146,7 @@ frappe.ui.form.on("CVS Stock Entry Import Item", {
 				match_notes: __("Item Code selected manually."),
 			});
 		});
-		if (row.original_description) {
-			frappe.call({
-				method: "cvs_stock_entry_import.cvs_stock_entry_import.doctype.cvs_stock_entry_import.cvs_stock_entry_import.save_manual_match_alias",
-				args: { original_description: row.original_description, item_code: row.item_code, source_name: frm.is_new() ? null : frm.doc.name },
-			});
-		}
+		// The alias for this selection is saved by the server when the document is saved.
 	},
 });
 

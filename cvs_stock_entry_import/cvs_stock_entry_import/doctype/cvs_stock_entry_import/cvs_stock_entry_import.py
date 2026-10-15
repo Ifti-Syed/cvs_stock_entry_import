@@ -2,10 +2,9 @@ import re
 
 import frappe
 from erpnext.controllers.queries import item_query as item_search
-from erpnext.stock.get_item_details import get_conversion_factor
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate
+from frappe.utils import cint, flt, getdate
 
 from cvs_stock_entry_import.cvs_stock_entry_import import item_matcher
 from cvs_stock_entry_import.cvs_stock_entry_import.extract import extract_document
@@ -29,14 +28,24 @@ class CVSStockEntryImport(Document):
 		self.opr_number = _resolve_opr(data["opr_number"]) or data["opr_number"]
 		self.set("items", [])
 		for row in data["items"]:
-			match = item_matcher.match_row(
-				row["item_code_on_document"], row["description"], row["uom"], row["batch_id"]
-			)
+			# Link fields reject text that isn't a UOM record, which would lose the whole extraction.
+			# Keep what the paper says in extracted_uom and leave the UOM for the user to pick.
+			uom = item_matcher.item_uom(row["uom"]) if row["uom"] and frappe.db.exists("UOM", row["uom"]) else ""
+			match = item_matcher.match_row(row["item_code_on_document"], row["description"], uom, row["batch_id"])
+			notes = [match["match_notes"]]
+			if row["uom"] and not uom:
+				notes.append(_('UOM "{0}" on the document is not a UOM in ERPNext - please select the UOM.').format(row["uom"]))
+			for fieldname in row["unreadable"]:
+				notes.append(_("{0} could not be read from the document - please enter it.").format(_(fieldname.replace("_", " ").title())))
 			self.append("items", {
 				**match,
+				"match_notes": " ".join(n for n in notes if n),
 				"original_description": row["description"],
+				"extracted_description": row["description"],
 				"extracted_item_code": row["item_code_on_document"],
-				"uom": row["uom"],
+				"extracted_uom": row["uom"],
+				"extracted_batch_id": row["batch_id"],
+				"uom": uom,
 				"requested_qty": row["requested_qty"],
 				"issued_qty": row["issued_qty"],
 			})
@@ -49,7 +58,44 @@ class CVSStockEntryImport(Document):
 		}
 
 	@frappe.whitelist()
-	def generate_stock_entry(self):
+	def match_again(self):
+		"""Re-run the Item matching on the current rows, without calling the AI again.
+
+		Uses the description / UOM / Batch as they stand now, so corrections, new aliases and Item master
+		changes take effect. Rows the user selected by hand are left alone.
+		"""
+		self.check_permission("write")
+		if self.generated_stock_entry and frappe.db.get_value("Stock Entry", self.generated_stock_entry, "docstatus") != 2:
+			frappe.throw(_("A Stock Entry has already been generated from this document."))
+
+		rematched = 0
+		for row in self.items:
+			if row.match_status == "Manual Selection":
+				continue
+			row.update(item_matcher.match_row(
+				row.extracted_item_code, row.original_description, row.uom or row.extracted_uom,
+				row.batch_no or row.extracted_batch_id,
+			))
+			rematched += 1
+		self.save()
+
+		return {
+			"rows": rematched,
+			"needs_review": sum(1 for r in self.items if r.match_status in REVIEW_STATUSES),
+		}
+
+	def on_update(self):
+		"""Remember a manual Item selection as an alias only once it is saved, never while still being picked."""
+		before = self.get_doc_before_save()
+		previous = {r.name: r.item_code for r in before.items} if before else {}
+		if not frappe.has_permission("CVS Item Matching Alias", "create"):
+			return
+		for row in self.items:
+			if row.match_status == "Manual Selection" and row.item_code and row.item_code != previous.get(row.name):
+				item_matcher.save_alias(row.original_description, row.item_code, self.name)
+
+	@frappe.whitelist()
+	def generate_stock_entry(self, confirm_uncertain=0):
 		self.check_permission("write")
 
 		# Row lock: two simultaneous requests can't both pass the duplicate check.
@@ -68,6 +114,34 @@ class CVSStockEntryImport(Document):
 			frappe.throw(_("Please select a Source Warehouse."))
 		if not self.items:
 			frappe.throw(_("There are no items to issue."))
+
+		# Validate every row first and report all problems at once.
+		problems, rows = [], []
+		for row in self.items:
+			stock_uom, problem = self._check_row(row)
+			if problem:
+				problems.append(problem)
+				continue
+			uom = row.uom or stock_uom
+			factor = item_matcher.conversion_factor(row.item_code, uom, stock_uom)
+			if factor is None:
+				problems.append(_(
+					'Row {0}: UOM "{1}" has no conversion to the Stock UOM {2} of Item {3}. Add the conversion on the Item, '
+					"or correct the UOM - otherwise ERPNext would issue {4} {2}."
+				).format(row.idx, uom, stock_uom, row.item_code, flt(row.issued_qty)))
+				continue
+			rows.append((row, uom, stock_uom, factor))
+		if problems:
+			frappe.throw("<br>".join(problems), title=_("Cannot generate Stock Entry"))
+
+		# A "Possible Match" is only the system's best guess: the user must explicitly accept it.
+		uncertain = [r for r in self.items if r.match_status == "Possible Match"]
+		if uncertain and not cint(confirm_uncertain):
+			return {"needs_confirmation": [
+				{"idx": r.idx, "description": r.original_description, "item_code": r.item_code,
+				 "item_name": r.item_name, "notes": r.match_notes}
+				for r in uncertain
+			]}
 
 		has_requested_qty = frappe.get_meta("Stock Entry Detail").has_field("requested_qty")
 		se_meta = frappe.get_meta("Stock Entry")
@@ -91,18 +165,13 @@ class CVSStockEntryImport(Document):
 			else:
 				warnings.append(_("OPR {0} was not found, so it was left blank on the Stock Entry.").format(self.opr_number))
 
-		for row in self.items:
-			stock_uom = self._validate_row(row)
-			uom = row.uom or stock_uom
-			if warning := item_matcher.uom_warning(row.item_code, row.uom, stock_uom):
-				warnings.append(_("Row {0}: {1}").format(row.idx, warning))
-
+		for row, uom, stock_uom, factor in rows:
 			se_row = {
 				"item_code": row.item_code,
 				"qty": row.issued_qty,
 				"uom": uom,
 				"stock_uom": stock_uom,
-				"conversion_factor": get_conversion_factor(row.item_code, uom)["conversion_factor"],
+				"conversion_factor": factor,
 				"s_warehouse": self.source_warehouse,
 			}
 			if has_requested_qty:
@@ -117,17 +186,18 @@ class CVSStockEntryImport(Document):
 		self.save()
 		return {"stock_entry": se.name, "warnings": warnings}
 
-	def _validate_row(self, row):
+	def _check_row(self, row):
+		"""(stock UOM, "") for a row that can be issued, else (None, what is wrong with it)."""
 		if not row.item_code:
-			frappe.throw(_("Row {0}: Please select an Item Code.").format(row.idx))
+			return None, _("Row {0}: Please select an Item Code.").format(row.idx)
 		item = frappe.db.get_value("Item", row.item_code, ["disabled", "is_stock_item", "stock_uom"], as_dict=True)
 		if not item or item.disabled or not item.is_stock_item:
-			frappe.throw(_("Row {0}: Item {1} does not exist, is disabled, or is not a stock item.").format(row.idx, row.item_code))
+			return None, _("Row {0}: Item {1} does not exist, is disabled, or is not a stock item.").format(row.idx, row.item_code)
 		if row.issued_qty <= 0:
-			frappe.throw(_("Row {0}: Issued Qty must be greater than zero.").format(row.idx))
+			return None, _("Row {0}: Issued Qty must be greater than zero.").format(row.idx)
 		if row.batch_no and frappe.db.get_value("Batch", row.batch_no, "item") != row.item_code:
-			frappe.throw(_("Row {0}: Batch {1} does not belong to Item {2}.").format(row.idx, row.batch_no, row.item_code))
-		return item.stock_uom
+			return None, _("Row {0}: Batch {1} does not belong to Item {2}.").format(row.idx, row.batch_no, row.item_code)
+		return item.stock_uom, ""
 
 
 def _resolve_opr(text):
@@ -147,12 +217,6 @@ def _valid_date(value):
 		return getdate(value) if value else None
 	except Exception:
 		return None
-
-
-@frappe.whitelist()
-def save_manual_match_alias(original_description, item_code, source_name=None):
-	frappe.has_permission("CVS Item Matching Alias", "create", throw=True)
-	item_matcher.save_alias(original_description, item_code, source_name)
 
 
 @frappe.whitelist()
