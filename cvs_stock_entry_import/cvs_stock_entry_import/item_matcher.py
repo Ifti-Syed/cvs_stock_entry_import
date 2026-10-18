@@ -386,11 +386,19 @@ def _match_description(description, uom):
 
 
 def _match(item_code, description, uom, batch_id):
+	normalized = normalize_description(description)
 	item = find_item(item_code)
 	if item:
+		# The printed code is taken. Only when the printed description clearly contradicts that Item (so a
+		# digit of the code was probably misread) is the row flagged for the user to confirm.
+		if normalized and (conflict := _contradiction(_spec_tokens(description), _entry(item, set()).spec)):
+			return _result(
+				item, "Possible Match", 70,
+				f"Item Code {item.item_code} exists, but the description conflicts with it ({conflict}). "
+				"A digit of the code may have been misread. Please verify.",
+			)
 		return _result(item, "Exact Item Code", 100, "Item Code on the document exists in the Item master.")
 
-	normalized = normalize_description(description)
 	paper = _spec_tokens(description) if normalized else None
 	batch_item = _batch_item(batch_id)
 

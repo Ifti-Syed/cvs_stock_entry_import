@@ -25,7 +25,7 @@ class CVSStockEntryImport(Document):
 
 		self.posting_date = _valid_date(data["posting_date"])
 		self.job_number = data["job_number"]
-		self.opr_number = _resolve_opr(data["opr_number"]) or data["opr_number"]
+		self.opr_number = _resolve_opr(data["opr_number"], self.posting_date) or data["opr_number"]
 		self.set("items", [])
 		for row in data["items"]:
 			# Link fields reject text that isn't a UOM record, which would lose the whole extraction.
@@ -54,6 +54,7 @@ class CVSStockEntryImport(Document):
 		return {
 			"rows": len(self.items),
 			"needs_review": sum(1 for r in self.items if r.match_status in REVIEW_STATUSES),
+			"batch_unmatched": sum(1 for r in self.items if r.extracted_batch_id and not r.batch_no),
 			"date_unreadable": bool(data["posting_date"] and not self.posting_date),
 		}
 
@@ -116,7 +117,7 @@ class CVSStockEntryImport(Document):
 			frappe.throw(_("There are no items to issue."))
 
 		# Validate every row first and report all problems at once.
-		problems, rows = [], []
+		problems, rows, warnings = [], [], []
 		for row in self.items:
 			stock_uom, problem = self._check_row(row)
 			if problem:
@@ -131,6 +132,8 @@ class CVSStockEntryImport(Document):
 				).format(row.idx, uom, stock_uom, row.item_code, flt(row.issued_qty)))
 				continue
 			rows.append((row, uom, stock_uom, factor))
+			if row.extracted_batch_id and not row.batch_no:
+				warnings.append(_('Row {0}: Batch "{1}" is written on the document but this Item does not use batches, so none was set.').format(row.idx, row.extracted_batch_id))
 		if problems:
 			frappe.throw("<br>".join(problems), title=_("Cannot generate Stock Entry"))
 
@@ -145,7 +148,6 @@ class CVSStockEntryImport(Document):
 
 		has_requested_qty = frappe.get_meta("Stock Entry Detail").has_field("requested_qty")
 		se_meta = frappe.get_meta("Stock Entry")
-		warnings = []
 
 		se = frappe.new_doc("Stock Entry")
 		se.update({
@@ -159,7 +161,7 @@ class CVSStockEntryImport(Document):
 		if se_meta.has_field("job_number"):
 			se.job_number = self.job_number
 		if self.opr_number:
-			opr = _resolve_opr(self.opr_number)
+			opr = _resolve_opr(self.opr_number, self.posting_date)
 			if opr and se_meta.has_field("custom_opr"):
 				se.custom_opr = opr
 			else:
@@ -190,9 +192,14 @@ class CVSStockEntryImport(Document):
 		"""(stock UOM, "") for a row that can be issued, else (None, what is wrong with it)."""
 		if not row.item_code:
 			return None, _("Row {0}: Please select an Item Code.").format(row.idx)
-		item = frappe.db.get_value("Item", row.item_code, ["disabled", "is_stock_item", "stock_uom"], as_dict=True)
+		item = frappe.db.get_value("Item", row.item_code, ["disabled", "is_stock_item", "stock_uom", "has_batch_no"], as_dict=True)
 		if not item or item.disabled or not item.is_stock_item:
 			return None, _("Row {0}: Item {1} does not exist, is disabled, or is not a stock item.").format(row.idx, row.item_code)
+		if item.has_batch_no and row.extracted_batch_id and not row.batch_no:
+			return None, _(
+				'Row {0}: Item {1} is batch-tracked and the document says Batch "{2}", but that Batch was not found for this Item. '
+				"Select the correct Batch No."
+			).format(row.idx, row.item_code, row.extracted_batch_id)
 		if row.issued_qty <= 0:
 			return None, _("Row {0}: Issued Qty must be greater than zero.").format(row.idx)
 		if row.batch_no and frappe.db.get_value("Batch", row.batch_no, "item") != row.item_code:
@@ -200,16 +207,22 @@ class CVSStockEntryImport(Document):
 		return item.stock_uom, ""
 
 
-def _resolve_opr(text):
-	"""Exact OPR name, or the paper's "OPR-26-02144" / "26-02144" as "OPR-2602144" if that record exists."""
+def _resolve_opr(text, date=None):
+	"""The OPR record for what the paper says, or None. Accepts the exact name, "OPR-26-02144" / "26-02144"
+	(= OPR-2602144) and, using the year of the document, just the sequence ("2644" = OPR-<yy>02644)."""
 	text = (text or "").strip()
 	if not text:
 		return None
 	if frappe.db.exists("Order Processing Request", text):
 		return text
 	m = re.fullmatch(r"(?:opr\W*)?(\d[\d\W]*)", text, re.IGNORECASE)
-	name = "OPR-" + re.sub(r"\D", "", m.group(1)) if m else None
-	return name if name and frappe.db.exists("Order Processing Request", name) else None
+	if not m:
+		return None
+	digits = re.sub(r"\D", "", m.group(1))
+	names = ["OPR-" + digits]
+	if date and len(digits) <= 5:
+		names.append(f"OPR-{getdate(date).year % 100:02d}{digits.zfill(5)}")
+	return next((n for n in names if frappe.db.exists("Order Processing Request", n)), None)
 
 
 def _valid_date(value):

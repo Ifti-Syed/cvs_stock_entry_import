@@ -24,27 +24,40 @@ Return ONLY one valid JSON object (no markdown, no comments). Extract ONLY what 
 Never invent, guess, or infer. If a text value is missing or illegible, use "". If a quantity is
 illegible, use null: null means "could not read it" and is NOT the same as 0.
 
-HEADER:
+HEADER (handwritten, copy exactly as written):
 - posting_date: document date as "YYYY-MM-DD". Two-digit years are 20YY. Numeric dates are
-  day-first (e.g. "14-9-26" = 2026-09-14). "" if absent.
-- job_number: Job No., copied exactly.
-- opr_number: OPR No. (e.g. "OPR-26-02144"), copied exactly. Do not fill in illegible characters.
+  day-first (e.g. "14-9-26" = 2026-09-14, "17/10/2026" = 2026-10-17). "" if absent.
+- job_number: Job No., copied digit by digit (e.g. "2610065").
+- opr_number: OPR No., copied exactly as written, including leading zeros. It is often only digits
+  (e.g. "02749"), or "OPR-26-02144". Do not add or fill in characters that are not written.
 
-ITEMS (one object per table row):
-- item_code_on_document: Item Code only if printed (e.g. "2020111"), else "". Never copy the Job No.,
-  OPR No., or Batch ID here.
-- description: EVERY word exactly as written, in the written order (e.g. "Coil GI JSW 0.6mm" must not
-  become "G.I Coil 0.6mm"). Never drop a word: brand names (e.g. JSW, AGIS), grade (G90), material
-  (GI/SS/MS), type and every dimension are what identify the Item. Do not reorder or clean up.
-- uom: unit as written (e.g. "m", "Sqm", "Pkt", "Nos"), else "".
-- requested_qty: Requested Qty column. If the document has only one quantity column, put it in
-  issued_qty and use 0 here.
-- issued_qty: Issued Qty column. A dash "-" or an empty cell is 0; an illegible one is null.
-- batch_id: Batch ID exactly as written (letters and digits, e.g. "VG1A0A0498"; take care to tell
-  0/O and 1/I apart), else "".
+ITEMS:
+The table is often PRE-PRINTED with dozens of Items (Item Code, Description and UOM already printed in
+every row). The store person then WRITES in the Requested Qty, Issued Qty and Batch ID columns only for
+the rows that were actually issued.
+- Return ONLY the rows where at least one of Requested Qty, Issued Qty or Batch ID has something written
+  in it. A row that only has an Item Code / Description / UOM, with those three columns empty, was NOT
+  issued: leave it out completely, however many such rows there are. Do not list the whole table.
+- The sheet may be photographed at an angle, so handwriting can sit slightly above or below the printed
+  text of its row. Follow the table lines to decide which row a handwritten value belongs to; never shift
+  a value to a neighbouring row.
+Each returned row:
+- item_code_on_document: the number in the Item Code column of that row, copied digit by digit
+  (e.g. "1010177"). Always fill it when the column has a code; "" only when that cell is empty. Never
+  copy the Job No., OPR No. or Batch ID here.
+- description: EVERY word of that row's Description exactly as written or printed, in the same order
+  (e.g. "Coil GI JSW 0.6mm" must not become "G.I Coil 0.6mm"). Never drop a word: brand names (e.g. JSW,
+  AGIS, Hadeed), grade (G90), material (GI/SS/MS), type and every dimension identify the Item.
+- uom: the UOM of that row as printed or written (e.g. "m", "Sqm", "Pkt", "Nos"), else "".
+- requested_qty: the number in the Requested Qty column. If words are written instead of a number
+  (e.g. "OFF cut"), use null. Empty = 0.
+- issued_qty: the number in the Issued Qty column, as a number only even if a unit is written with it
+  ("200M" -> 200, "35 m" -> 35). A dash "-" or an empty cell is 0; an illegible one is null.
+- batch_id: the Batch ID written in that row, copied character by character exactly as written (typically
+  a long number such as "1626290063", or letters and digits). Never shorten, "fix" or reformat it; tell
+  0/O and 1/I apart carefully. "" if that cell is empty.
 
-{brands}Skip header rows, totals, signature/footer rows (Requested by, Issued by, Entered by, Date Entered),
-and empty rows.
+{brands}Skip header rows, totals and signature/footer rows (Requested by, Issued by, Entered by, Date Entered, STE Ref).
 
 {
   "posting_date": "",
@@ -76,11 +89,8 @@ def _quantity(v):
 	text = str(v).replace(",", "").strip()
 	if text in ("-", "\u2013", "\u2014"):
 		return 0.0
-	try:
-		value = float(text)
-	except ValueError:
-		return None
-	return value if value >= 0 else None
+	m = re.fullmatch(r"(\d+(?:\.\d+)?|\.\d+)\s*[a-z]{0,4}\.?", text, re.IGNORECASE)  # "35", "200M", "35 m"
+	return float(m.group(1)) if m else None
 
 
 def _parse_json(text):
@@ -123,6 +133,10 @@ def _normalize(payload):
 			"batch_id": _str(it.get("batch_id")),
 		}
 		row["unreadable"] = [k for k in ("requested_qty", "issued_qty") if row[k] is None]
+		# A printed Item Code / Description with nothing written in Requested, Issued or Batch ID was not issued.
+		# (An unreadable cell counts as written: something is there, it just could not be read.)
+		if not row["unreadable"] and not row["requested_qty"] and not row["issued_qty"] and not row["batch_id"]:
+			continue
 		for k in row["unreadable"]:
 			row[k] = 0.0
 		items.append(row)

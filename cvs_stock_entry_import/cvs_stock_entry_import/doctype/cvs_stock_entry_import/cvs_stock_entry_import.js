@@ -46,6 +46,16 @@ frappe.ui.form.on("CVS Stock Entry Import", {
 					if (message.date_unreadable) {
 						frappe.msgprint(__("The date on the document could not be read. Please enter the Posting Date."));
 					}
+					if (message.batch_unmatched) {
+						frappe.msgprint({
+							title: __("Batch Not Found"),
+							message: __(
+								"{0} row(s) have a Batch ID written on the document that was not found for the matched Item, so Batch No was left empty. Check the Batch ID in the row details and select the Batch No.",
+								[message.batch_unmatched]
+							),
+							indicator: "orange",
+						});
+					}
 					frappe.show_alert({
 						message: message.needs_review
 							? __("{0} item(s) extracted, {1} need review.", [message.rows, message.needs_review])
