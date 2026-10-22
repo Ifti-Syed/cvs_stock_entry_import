@@ -13,6 +13,10 @@ REVIEW_STATUSES = ("Possible Match", "Multiple Matches", "No Match")
 
 
 class CVSStockEntryImport(Document):
+	def before_validate(self):
+		if self.is_new() and not self.source_warehouse and self.company:
+			self.source_warehouse = get_default_warehouse(self.company, self.cvs_setting)
+
 	@frappe.whitelist()
 	def extract_data(self):
 		self.check_permission("write")
@@ -206,6 +210,21 @@ class CVSStockEntryImport(Document):
 		if row.batch_no and frappe.db.get_value("Batch", row.batch_no, "item") != row.item_code:
 			return None, _("Row {0}: Batch {1} does not belong to Item {2}.").format(row.idx, row.batch_no, row.item_code)
 		return item.stock_uom, ""
+
+
+@frappe.whitelist()
+def get_default_warehouse(company, cvs_setting=None):
+	"""The Source Warehouse to pre-fill: the AI Setting's own default if it has one, otherwise ERPNext's
+	Stock Settings > Default Warehouse. Only a real, enabled, non-group Warehouse of this Company is used."""
+	candidates = []
+	if cvs_setting:
+		candidates.append(frappe.db.get_value("CVS Stock Entry Import Setting", cvs_setting, "default_source_warehouse"))
+	candidates.append(frappe.db.get_single_value("Stock Settings", "default_warehouse"))
+	for name in candidates:
+		w = frappe.db.get_value("Warehouse", name, ["company", "is_group", "disabled"], as_dict=True) if name else None
+		if w and w.company == company and not w.is_group and not w.disabled:
+			return name
+	return None
 
 
 def _opr_candidates(text, date=None):

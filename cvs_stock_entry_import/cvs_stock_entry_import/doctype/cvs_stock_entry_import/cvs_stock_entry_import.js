@@ -7,6 +7,9 @@ frappe.ui.form.on("CVS Stock Entry Import", {
 			query: "cvs_stock_entry_import.cvs_stock_entry_import.doctype.cvs_stock_entry_import.cvs_stock_entry_import.item_query",
 			filters: { is_stock_item: 1, suggested: locals[cdt][cdn].suggested_items || "" },
 		}));
+		frm.set_query("source_warehouse", () => ({
+			filters: { company: frm.doc.company, is_group: 0, disabled: 0 },
+		}));
 		frm.set_query("batch_no", "items", (doc, cdt, cdn) => ({
 			filters: { item: locals[cdt][cdn].item_code, disabled: 0 },
 		}));
@@ -18,16 +21,20 @@ frappe.ui.form.on("CVS Stock Entry Import", {
 		}
 	},
 
+	onload(frm) {
+		if (frm.is_new()) set_default_warehouse(frm);
+	},
+
+	company(frm) {
+		set_default_warehouse(frm);
+	},
+
 	cvs_setting(frm) {
 		if (!frm.doc.cvs_setting) return;
-		frappe.db
-			.get_value("CVS Stock Entry Import Setting", frm.doc.cvs_setting, ["company", "default_source_warehouse"])
-			.then(({ message }) => {
-				if (message.company && !frm.doc.company) frm.set_value("company", message.company);
-				if (message.default_source_warehouse && !frm.doc.source_warehouse) {
-					frm.set_value("source_warehouse", message.default_source_warehouse);
-				}
-			});
+		frappe.db.get_value("CVS Stock Entry Import Setting", frm.doc.cvs_setting, "company").then(({ message }) => {
+			if (message.company && !frm.doc.company) frm.set_value("company", message.company);
+			set_default_warehouse(frm);
+		});
 	},
 
 	extract_data(frm) {
@@ -169,6 +176,24 @@ frappe.ui.form.on("CVS Stock Entry Import Item", {
 		// The alias for this selection is saved by the server when the document is saved.
 	},
 });
+
+// Source Warehouse comes from the AI Setting or Stock Settings > Default Warehouse, but a warehouse the
+// user picked themselves is never replaced.
+function set_default_warehouse(frm) {
+	if (frm.doc.generated_stock_entry || !frm.doc.company) return;
+	if (frm.doc.source_warehouse && frm.doc.source_warehouse !== frm.auto_warehouse) return;
+	frappe
+		.call({
+			method: "cvs_stock_entry_import.cvs_stock_entry_import.doctype.cvs_stock_entry_import.cvs_stock_entry_import.get_default_warehouse",
+			args: { company: frm.doc.company, cvs_setting: frm.doc.cvs_setting || "" },
+		})
+		.then(({ message }) => {
+			if (message && message !== frm.doc.source_warehouse) {
+				frm.auto_warehouse = message;
+				frm.set_value("source_warehouse", message);
+			}
+		});
+}
 
 function save_if_needed(frm) {
 	return frm.is_new() || frm.is_dirty() ? frm.save() : Promise.resolve();
