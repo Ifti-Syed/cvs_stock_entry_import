@@ -28,8 +28,9 @@ HEADER (handwritten, copy exactly as written):
 - posting_date: document date as "YYYY-MM-DD". Two-digit years are 20YY. Numeric dates are
   day-first (e.g. "14-9-26" = 2026-09-14, "17/10/2026" = 2026-10-17). "" if absent.
 - job_number: Job No., copied digit by digit (e.g. "2610065").
-- opr_number: OPR No., copied exactly as written, including leading zeros. It is often only digits
-  (e.g. "02749"), or "OPR-26-02144". Do not add or fill in characters that are not written.
+- opr_number: OPR No., copied exactly as written, including leading zeros. OPR numbers look like
+  "OPR-26-02901" (OPR-YY-NNNNN), but only the digits may be written after the printed "OPR No :"
+  (e.g. "02901" or "26-02901"). Do not add or fill in characters that are not written.
 
 ITEMS:
 The table is often PRE-PRINTED with dozens of Items (Item Code, Description and UOM already printed in

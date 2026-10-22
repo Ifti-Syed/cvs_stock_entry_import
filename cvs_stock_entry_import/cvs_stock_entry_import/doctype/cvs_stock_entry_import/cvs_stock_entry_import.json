@@ -18,6 +18,7 @@
   "job_number",
   "column_break_header",
   "opr_number",
+  "extracted_opr",
   "section_break_items",
   "items",
   "section_break_generate",
@@ -83,8 +84,16 @@
   },
   {
    "fieldname": "opr_number",
+   "fieldtype": "Link",
+   "label": "OPR",
+   "options": "Order Processing Request"
+  },
+  {
+   "fieldname": "extracted_opr",
    "fieldtype": "Data",
-   "label": "OPR"
+   "label": "OPR (as read by AI)",
+   "read_only": 1,
+   "depends_on": "eval:doc.extracted_opr && !doc.opr_number"
   },
   {
    "fieldname": "section_break_items",
@@ -119,7 +128,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-06 00:00:00.000000",
+ "modified": "2026-10-22 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "CVS Stock Entry Import",
  "name": "CVS Stock Entry Import",

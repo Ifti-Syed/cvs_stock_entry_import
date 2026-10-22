@@ -46,6 +46,16 @@ frappe.ui.form.on("CVS Stock Entry Import", {
 					if (message.date_unreadable) {
 						frappe.msgprint(__("The date on the document could not be read. Please enter the Posting Date."));
 					}
+					if (message.opr_not_found) {
+						frappe.msgprint({
+							title: __("OPR Not Found"),
+							message: __(
+								"The OPR number extracted from the document ({0}) is not in the Order Processing Request list. Please select the correct OPR.",
+								[frappe.utils.escape_html(message.opr_not_found)]
+							),
+							indicator: "orange",
+						});
+					}
 					if (message.batch_unmatched) {
 						frappe.msgprint({
 							title: __("Batch Not Found"),

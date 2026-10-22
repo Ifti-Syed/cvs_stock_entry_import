@@ -25,7 +25,9 @@ class CVSStockEntryImport(Document):
 
 		self.posting_date = _valid_date(data["posting_date"])
 		self.job_number = data["job_number"]
-		self.opr_number = _resolve_opr(data["opr_number"], self.posting_date) or data["opr_number"]
+		# OPR is a Link: only a record that really exists is set. What the AI read is kept to show the user.
+		self.extracted_opr = data["opr_number"]
+		self.opr_number = _resolve_opr(data["opr_number"], self.posting_date)
 		self.set("items", [])
 		for row in data["items"]:
 			# Link fields reject text that isn't a UOM record, which would lose the whole extraction.
@@ -54,6 +56,7 @@ class CVSStockEntryImport(Document):
 		return {
 			"rows": len(self.items),
 			"needs_review": sum(1 for r in self.items if r.match_status in REVIEW_STATUSES),
+			"opr_not_found": data["opr_number"] if data["opr_number"] and not self.opr_number else "",
 			"batch_unmatched": sum(1 for r in self.items if r.extracted_batch_id and not r.batch_no),
 			"date_unreadable": bool(data["posting_date"] and not self.posting_date),
 		}
@@ -160,12 +163,10 @@ class CVSStockEntryImport(Document):
 			se.update({"posting_date": self.posting_date, "set_posting_time": 1})
 		if se_meta.has_field("job_number"):
 			se.job_number = self.job_number
-		if self.opr_number:
-			opr = _resolve_opr(self.opr_number, self.posting_date)
-			if opr and se_meta.has_field("custom_opr"):
-				se.custom_opr = opr
-			else:
-				warnings.append(_("OPR {0} was not found, so it was left blank on the Stock Entry.").format(self.opr_number))
+		if self.opr_number and se_meta.has_field("custom_opr"):
+			se.custom_opr = self.opr_number
+		elif self.extracted_opr and not self.opr_number:
+			warnings.append(_("OPR {0} from the document is not in the Order Processing Request list, so no OPR was set.").format(self.extracted_opr))
 
 		for row, uom, stock_uom, factor in rows:
 			se_row = {
@@ -207,22 +208,30 @@ class CVSStockEntryImport(Document):
 		return item.stock_uom, ""
 
 
-def _resolve_opr(text, date=None):
-	"""The OPR record for what the paper says, or None. Accepts the exact name, "OPR-26-02144" / "26-02144"
-	(= OPR-2602144) and, using the year of the document, just the sequence ("2644" = OPR-<yy>02644)."""
+def _opr_candidates(text, date=None):
+	"""Possible Order Processing Request names for what the paper says, best first.
+
+	Names are OPR-YY-NNNNN (e.g. OPR-26-02901; OPR-27-... in 2027). The paper may show the whole thing,
+	"26-02901", or only the sequence ("2901"), in which case the year of the document is used. The older
+	OPR-YYNNNNN form is tried second.
+	"""
 	text = (text or "").strip()
-	if not text:
-		return None
-	if frappe.db.exists("Order Processing Request", text):
-		return text
 	m = re.fullmatch(r"(?:opr\W*)?(\d[\d\W]*)", text, re.IGNORECASE)
 	if not m:
-		return None
+		return [text] if text else []
 	digits = re.sub(r"\D", "", m.group(1))
-	names = ["OPR-" + digits]
-	if date and len(digits) <= 5:
-		names.append(f"OPR-{getdate(date).year % 100:02d}{digits.zfill(5)}")
-	return next((n for n in names if frappe.db.exists("Order Processing Request", n)), None)
+	if 6 <= len(digits) <= 7:
+		yy, seq = digits[:2], digits[2:].zfill(5)
+	elif len(digits) <= 5 and date:
+		yy, seq = f"{getdate(date).year % 100:02d}", digits.zfill(5)
+	else:
+		return [text]
+	return list(dict.fromkeys([text, f"OPR-{yy}-{seq}", f"OPR-{yy}{seq}"]))
+
+
+def _resolve_opr(text, date=None):
+	"""The existing Order Processing Request for what the paper says, or None. Never invents one."""
+	return next((n for n in _opr_candidates(text, date) if frappe.db.exists("Order Processing Request", n)), None)
 
 
 def _valid_date(value):
