@@ -1,12 +1,12 @@
 {
  "actions": [],
  "allow_rename": 0,
- "autoname": "format:CVS-STEI-{YYYY}-{######}",
  "creation": "2026-10-01 00:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "naming_series",
   "company",
   "source_warehouse",
   "column_break_doc",
@@ -26,6 +26,16 @@
   "generated_stock_entry"
  ],
  "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "STEI-.YY.-.###",
+   "default": "STEI-.YY.-.###",
+   "no_copy": 1,
+   "print_hide": 1,
+   "set_only_once": 1
+  },
   {
    "fieldname": "company",
    "fieldtype": "Link",
@@ -128,11 +138,11 @@
   }
  ],
  "links": [],
- "modified": "2026-10-22 00:00:00.000000",
+ "modified": "2026-10-28 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "CVS Stock Entry Import",
  "name": "CVS Stock Entry Import",
- "naming_rule": "Expression",
+ "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {
@@ -157,7 +167,8 @@
    "report": 1,
    "role": "Stock User",
    "share": 1,
-   "write": 1
+   "write": 1,
+   "select": 1
   }
  ],
  "quick_entry": 0,
@@ -165,5 +176,6 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "search_fields": "job_number,opr_number"
+ "search_fields": "job_number,opr_number",
+ "autoname": "naming_series:"
 }

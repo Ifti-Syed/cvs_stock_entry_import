@@ -201,9 +201,22 @@ class TestExtractionValidation(FrappeTestCase):
 		self.assertEqual((row["requested_qty"], row["issued_qty"]), (0.0, 0.0))
 
 	def test_dash_and_zero_are_real_zeros(self):
-		row = _normalize(self.payload(issued_qty="-", requested_qty=0))["items"][0]
+		row = _normalize(self.payload(issued_qty="-", requested_qty=5))["items"][0]
 		self.assertEqual(row["unreadable"], [])
-		self.assertEqual((row["requested_qty"], row["issued_qty"]), (0.0, 0.0))
+		self.assertEqual((row["requested_qty"], row["issued_qty"]), (5.0, 0.0))
+
+	def test_printed_row_with_nothing_written_is_dropped(self):
+		for blank in ({"requested_qty": 0, "issued_qty": 0}, {"requested_qty": 0, "issued_qty": "-"}):
+			self.assertEqual(_normalize(self.payload(**blank))["items"], [])
+
+	def test_a_row_is_kept_when_anything_is_written(self):
+		self.assertEqual(len(_normalize(self.payload(requested_qty=0, issued_qty=0, batch_id="1626290063"))["items"]), 1)
+		self.assertEqual(len(_normalize(self.payload(requested_qty=3, issued_qty=0))["items"]), 1)
+		self.assertEqual(len(_normalize(self.payload(requested_qty="OFF cut", issued_qty=5.3))["items"]), 1)
+
+	def test_quantity_written_with_a_unit(self):
+		self.assertEqual((_quantity("200M"), _quantity("35 m"), _quantity("74.8")), (200.0, 35.0, 74.8))
+		self.assertIsNone(_quantity("OFF cut"))
 
 	def test_numbers_as_text_and_negative(self):
 		self.assertEqual(_quantity("1,200.5"), 1200.5)
