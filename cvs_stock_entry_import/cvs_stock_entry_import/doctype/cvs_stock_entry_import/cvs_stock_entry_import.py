@@ -219,7 +219,8 @@ def get_default_warehouse(company, cvs_setting=None):
 	candidates = []
 	if cvs_setting:
 		candidates.append(frappe.db.get_value("CVS Stock Entry Import Setting", cvs_setting, "default_source_warehouse"))
-	candidates.append(frappe.db.get_single_value("Stock Settings", "default_warehouse"))
+	if frappe.get_meta("Stock Settings").has_field("default_warehouse"):  # not present on every ERPNext version
+		candidates.append(frappe.db.get_single_value("Stock Settings", "default_warehouse"))
 	for name in candidates:
 		w = frappe.db.get_value("Warehouse", name, ["company", "is_group", "disabled"], as_dict=True) if name else None
 		if w and w.company == company and not w.is_group and not w.disabled:
