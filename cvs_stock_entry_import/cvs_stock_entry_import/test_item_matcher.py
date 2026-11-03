@@ -12,6 +12,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from cvs_stock_entry_import.cvs_stock_entry_import import item_matcher as m
+from cvs_stock_entry_import.cvs_stock_entry_import.doctype.cvs_stock_entry_import.cvs_stock_entry_import import (
+	get_default_warehouse,
+)
 from cvs_stock_entry_import.cvs_stock_entry_import.extract import _normalize, _quantity
 
 
@@ -277,3 +280,44 @@ class TestAliasOnSave(FrappeTestCase):
 		row = {"name": "r1", "match_status": "Possible Match", "item_code": "ANG", "original_description": "GI Angle 50x50x5"}
 		save = self.run_on_update(self.doc([row]))
 		save.assert_not_called()
+
+
+class TestDefaultWarehouse(FrappeTestCase):
+	"""Source Warehouse default: Company > AI Setting > Stock Settings (each only if usable for the Company)."""
+
+	def pick(self, company=None, setting=None, stock=None, usable=(), company_field=True, stock_field=True, bad=None):
+		bad = bad or {}
+		warehouses = {n: frappe._dict(company="Co", is_group=0, disabled=0) for n in usable}
+		warehouses.update({n: frappe._dict({"company": "Co", "is_group": 0, "disabled": 0, **o}) for n, o in bad.items()})
+
+		def get_value(doctype, name=None, fieldname=None, *a, **k):
+			return {"Company": company, "CVS Stock Entry Import Setting": setting}.get(doctype) if doctype != "Warehouse" else warehouses.get(name)
+
+		def get_meta(doctype):
+			has = {"Company": company_field, "Stock Settings": stock_field}.get(doctype, True)
+			return frappe._dict(has_field=lambda f: has)
+
+		with patch("frappe.db.get_value", side_effect=get_value), patch(
+			"frappe.db.get_single_value", return_value=stock
+		), patch("frappe.get_meta", side_effect=get_meta):
+			return get_default_warehouse("Co", "AI-1")
+
+	def test_company_default_comes_first(self):
+		self.assertEqual(self.pick("W-CO", "W-AI", "W-ST", usable=["W-CO", "W-AI", "W-ST"]), "W-CO")
+
+	def test_falls_back_to_the_ai_setting_then_stock_settings(self):
+		self.assertEqual(self.pick(None, "W-AI", "W-ST", usable=["W-AI", "W-ST"]), "W-AI")
+		self.assertEqual(self.pick(None, None, "W-ST", usable=["W-ST"]), "W-ST")
+
+	def test_newer_erpnext_without_the_stock_settings_field(self):
+		self.assertEqual(self.pick("W-CO", stock_field=False, usable=["W-CO"]), "W-CO")
+		self.assertIsNone(self.pick(None, None, "W-ST", usable=["W-ST"], stock_field=False))
+
+	def test_older_erpnext_without_the_company_field(self):
+		self.assertEqual(self.pick("W-CO", None, "W-ST", usable=["W-CO", "W-ST"], company_field=False), "W-ST")
+
+	def test_unusable_warehouses_are_skipped(self):
+		bad = {"W-OTHER": {"company": "Other Co"}, "W-GROUP": {"is_group": 1}, "W-OFF": {"disabled": 1}}
+		for name in bad:
+			self.assertEqual(self.pick(name, "W-AI", usable=["W-AI"], bad=bad), "W-AI")
+		self.assertIsNone(self.pick("W-GONE", None, None))

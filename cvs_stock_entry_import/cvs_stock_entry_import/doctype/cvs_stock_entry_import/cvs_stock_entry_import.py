@@ -214,12 +214,16 @@ class CVSStockEntryImport(Document):
 
 @frappe.whitelist()
 def get_default_warehouse(company, cvs_setting=None):
-	"""The Source Warehouse to pre-fill: the AI Setting's own default if it has one, otherwise ERPNext's
-	Stock Settings > Default Warehouse. Only a real, enabled, non-group Warehouse of this Company is used."""
+	"""The Source Warehouse to pre-fill, first usable of: the Company's Default Warehouse (Company > Stock and
+	Manufacturing > Warehouse Defaults), the AI Setting's own default, Stock Settings > Default Warehouse (older
+	ERPNext). Each is used only if this ERPNext has it, and only if it is an enabled, non-group Warehouse of
+	this Company."""
 	candidates = []
+	if company and frappe.get_meta("Company").has_field("default_warehouse"):
+		candidates.append(frappe.db.get_value("Company", company, "default_warehouse"))
 	if cvs_setting:
 		candidates.append(frappe.db.get_value("CVS Stock Entry Import Setting", cvs_setting, "default_source_warehouse"))
-	if frappe.get_meta("Stock Settings").has_field("default_warehouse"):  # not present on every ERPNext version
+	if frappe.get_meta("Stock Settings").has_field("default_warehouse"):
 		candidates.append(frappe.db.get_single_value("Stock Settings", "default_warehouse"))
 	for name in candidates:
 		w = frappe.db.get_value("Warehouse", name, ["company", "is_group", "disabled"], as_dict=True) if name else None
